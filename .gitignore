@@ -1,0 +1,9 @@
+# editor template files
+\#**\#
+**~
+
+# virtual env folder
+/venv/
+
+# python intermediate files
+*.egg-info
