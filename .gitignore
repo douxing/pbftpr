@@ -7,3 +7,5 @@
 
 # python intermediate files
 *.egg-info
+__pycache__
+*.pyc
