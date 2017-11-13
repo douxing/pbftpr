@@ -1,11 +1,14 @@
 import asyncio
+from datetime import datetime
+import math
 
 from .principal import Principal
 from .types import Reqid, Seqno, View, TaskType, Task
+from .messages import NewKey
 
 class Node(asyncio.DatagramProtocol):
     def __init__(self,
-                 n:int = 0, f:int = 0, index:int = -1,
+                 n:int = 0, f:int = 0,
                  replica_principals = [], client_principals = [],
                  loop = asyncio.get_event_loop(),
                  *args, **kwargs):
@@ -15,13 +18,15 @@ class Node(asyncio.DatagramProtocol):
 
         self.replica_principals = [p for p in replica_principals]
         self.client_principals = [p for p in client_principals]
-        self.index = index # id of this node
 
         self.view = View(0)
 
         self.loop = loop
         # use task queue to queue tasks
         self.task_queue = asyncio.Queue(self.loop)
+
+        self.reqid = Reqid(math.floor(datetime.utcnow().timestamp() * 10**9))
+        self.last_new_key = None
 
         super().__init__(*args, **kwargs)
 
@@ -35,11 +40,19 @@ class Node(asyncio.DatagramProtocol):
 
     @property
     def is_valid(self):
-        if self.f * 3 + 1 > self.n
-        or len(self.replica_principals) < n:
+        if (self.f * 3 + 1 > self.n
+            or len(self.replica_principals) < n
+            or self.index == None):
             return False
 
         return True
+
+    def new_reqid() -> Reqid:
+        self.reqid += 1
+        return self.reqid
+
+    def send_new_key():
+        pass
 
     def connection_made(self, transport):
         self.transport = transport
@@ -75,4 +88,4 @@ class Node(asyncio.DatagramProtocol):
             res  = await handle(task)
         
     def run(self, loop = asyncio.get_event_loop()):
-        loop.run_until_complete(self.fetch_and_handle_loop)
+        loop.run_until_complete(self.fetch_and_handle_loop())

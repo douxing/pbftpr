@@ -1,7 +1,7 @@
 from enum import IntEnum
 
-import rlp import Serializable
-from rlp.sedes import big_endian_int, text, ListSedes
+from rlp import Serializable
+from rlp.sedes import big_endian_int
 
 class MessageTag(IntEnum):
     FREE_MSSAGE = 0
@@ -24,5 +24,5 @@ class MessageTag(IntEnum):
     REPLY_STABLE = 17
 
 class Message():
-    def __init__(self, tag:MessageTag):
+    def __init__(self):
         self.payload = None

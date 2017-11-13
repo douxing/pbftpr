@@ -1,4 +1,5 @@
 import binascii
+import math
 import os
 import sys
 
@@ -8,6 +9,7 @@ import toml
 
 from .node import Node
 from .replica import Replica
+from .principal import Principal
 from .client import Client
 
 @click.group(invoke_without_command=False)
@@ -86,24 +88,73 @@ according to your needs!'''.format(outfolder))
 def run(replica_count, fault_count, client_count,
         replica_configs, client_configs, node_config):
     try:
-        _rcs = toml.loads(replica_configs)
-        _ccs = toml.loads(client_configs)
-        _nc  = toml.loads(node_config)
+        _rcs = toml.load(replica_configs)
+        _ccs = toml.load(client_configs)
+        _nc  = toml.load(node_config)
     except toml.TomlDecodeError as tde:
         print('toml decode error: {}'.format(tde))
         sys.exit(-1)
 
-    if not _nc['node'] or not isinstance(_nc['node'], dict):
-        print("config_config node attribute not exist!")
+    if 'node' not in _nc or not isinstance(_nc['node'], dict):
+        print("node_config 'node' attribute not exist!")
         sys.exit(-1)
 
-    configs = dict({
+    if 'type' not in _nc['node']:
+        print("node_config 'node' should have 'type'!")
+        sys.exit(-1)
+    else:
+        node_type = _nc['node']['type']
         
-    })
-        
-    node = None
-    if _nc['node']['type'] == 'replica':
-        node = Replica()
-    elif _nc['node']['type'] == 'client':
-        node = Client()
+    if 'private_key' not in _nc['node']:
+        print("node_config 'node' should have 'private_key'!")
+        sys.exit(-1)
+    else:
+        private_key = coincurve.PrivateKey.from_hex(_nc['node']['private_key'])
 
+    if 'public_key' not in _nc['node']:
+        public_key = private_key.public_key # @see lib coincurve
+    else:
+        public_key = coincurve.PublicKey(
+            binascii.a2b_hex(_nc['node']['public_key'].encode()))
+
+    # genrate principals for replicas and clients
+    replica_principals = []
+    for index, r in enumerate(_rcs['nodes']):
+        p = Principal(index, public_key = r['public_key'],
+                      ip = r['ip'], port = r['port'])
+        replica_principals.append(p)
+        
+    client_principals = []
+    for index, c in enumerate(_ccs['nodes']):
+        p = Principal(index, public_key = r['public_key'],
+                      ip = r['ip'], port = r['port'])
+        client_principals.append(p)
+
+    n = replica_count or len(replica_principals)
+    f = fault_count or n // 3
+
+    kwargs = dict({
+        'n': n,
+        'f': f,
+        'private_key': private_key,
+        'public_key': public_key,
+        'replica_principals': replica_principals,
+        'client_principals': client_principals,
+    })
+
+    if node_type == 'replica':
+        node = Replica(**kwargs)
+    elif node_type == 'client':
+        node = Client(**kwargs)
+    else:
+        print("unknown 'node' 'type': {} {}!".format(node_type, type(node_type)))
+        sys.exit(-1)
+
+    try:
+        node.run()
+    except KeyboardInterrupt as exc:
+        print('Interrupted by user: {}'.format(exc))
+    except SystemExit as exc:
+        print('Interrupted by system exit: {}'.format(exc))
+    finally:
+        print('process exited!')
