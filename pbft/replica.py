@@ -1,3 +1,5 @@
+import binascii
+
 from .principal import Principal
 from .node import Node
 from .types import TaskType, Task
@@ -10,11 +12,12 @@ class Replica(Node):
 
         self.index = None # this is not a consensus replia
         for index, p in enumerate(replica_principals):
-            if p.public_key is public_key:
-                self.index == index
+            if p.public_key == public_key:
+                self.index = index
                 p.private_key = private_key
 
-        super().__init__(*args, **kwargs)
+        super().__init__(replica_principals = replica_principals,
+                         *args, **kwargs)
 
     @property
     def principal(self) -> Principal:
@@ -26,9 +29,11 @@ class Replica(Node):
         return super().is_valid
 
     async def handle(self, task:Task) -> bool:
-        if task.type == TaskType.COMM_MADE:
+        # print('task is {}'.format(task))
+
+        if task.type == TaskType.CONN_MADE:
             pass
-        elif task.type == TaskType.COMM_LOST:
+        elif task.type == TaskType.CONN_LOST:
             pass
         elif task.type == TaskType.PEER_MSG:
             pass
@@ -38,7 +43,5 @@ class Replica(Node):
             pass
         else:
             pass
-
-        print('task is {}'.format(task))
 
         return True # continue loop

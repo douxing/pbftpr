@@ -40,7 +40,7 @@ def gen(n, c, force, outfolder):
 
     port_index = 25600
 
-    # generate keys for replica and clients
+    # generate keys for replicas and clients
     for name, count in [('replica', n), ('client', c)]:
         keys = []
         for i in range(count):
@@ -53,6 +53,8 @@ def gen(n, c, force, outfolder):
                         'index': i,
                         'type': name,
                         'private_key': k.to_hex(),
+                        'public_key': binascii.b2a_hex(
+                            k.public_key.format()).decode(),
                     }
                 }, f)
             
@@ -120,13 +122,17 @@ def run(replica_count, fault_count, client_count,
     # genrate principals for replicas and clients
     replica_principals = []
     for index, r in enumerate(_rcs['nodes']):
-        p = Principal(index, public_key = r['public_key'],
+        p = Principal(index,
+                      public_key = coincurve.PublicKey(
+                          binascii.a2b_hex(r['public_key'].encode())),
                       ip = r['ip'], port = r['port'])
         replica_principals.append(p)
         
     client_principals = []
     for index, c in enumerate(_ccs['nodes']):
-        p = Principal(index, public_key = r['public_key'],
+        p = Principal(index,
+                      public_key = coincurve.PublicKey(
+                          binascii.a2b_hex(r['public_key'].encode())),
                       ip = r['ip'], port = r['port'])
         client_principals.append(p)
 
@@ -152,8 +158,8 @@ def run(replica_count, fault_count, client_count,
 
     try:
         node.run()
-    except KeyboardInterrupt as exc:
-        print('Interrupted by user: {}'.format(exc))
+    except KeyboardInterrupt:
+        print('Interrupted by user')
     except SystemExit as exc:
         print('Interrupted by system exit: {}'.format(exc))
     finally:

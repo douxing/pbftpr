@@ -2,11 +2,12 @@ import asyncio
 from datetime import datetime
 import math
 
+from .datagram_server import DatagramServer
 from .principal import Principal
 from .types import Reqid, Seqno, View, TaskType, Task
 from .messages import NewKey
 
-class Node(asyncio.DatagramProtocol):
+class Node():
     def __init__(self,
                  n:int = 0, f:int = 0,
                  replica_principals = [], client_principals = [],
@@ -23,10 +24,14 @@ class Node(asyncio.DatagramProtocol):
 
         self.loop = loop
         # use task queue to queue tasks
-        self.task_queue = asyncio.Queue(self.loop)
+        self.task_queue = asyncio.Queue(loop=self.loop)
 
         self.reqid = Reqid(math.floor(datetime.utcnow().timestamp() * 10**9))
         self.last_new_key = None
+
+        self.listen = self.loop.create_datagram_endpoint(
+            lambda: DatagramServer(self),
+            local_addr=(self.principal.ip, self.principal.port))
 
         super().__init__(*args, **kwargs)
 
@@ -54,27 +59,12 @@ class Node(asyncio.DatagramProtocol):
     def send_new_key():
         pass
 
-    def connection_made(self, transport):
-        self.transport = transport
-        self.task_queue.put(Task(TaskType.CONN_MADE, transport))
+    async def notify(self, task:Task):
+        await self.task_queue.put(task)
 
-    def connection_lost(self, exc):
-        """Lost connection
+    def sendto(self, data, addr):
+        pass
 
-        There must something happened, stop the loop.
-        """
-        self.task_queue.put(Task(TaskType.CONN_LOST, exc))
-        
-    def datagram_received(self, data, addr):
-        """Messages are node kind specific
-        """
-
-        # TODO: check addr?
-        self.task_queue.put(Task(TaskType.PEER_MSG, data))
-
-    def error_received(self, exc):
-        # print('Node transport error: {}'.format(exc))
-        self.task_queue.put(Task(TaskType.PEER_ERR, exc))
 
     async def handle(self, task:Task):
         """Handle all kinds of tasks
@@ -85,7 +75,8 @@ class Node(asyncio.DatagramProtocol):
         res = True
         while res:
             task = await self.task_queue.get()
-            res  = await handle(task)
-        
-    def run(self, loop = asyncio.get_event_loop()):
-        loop.run_until_complete(self.fetch_and_handle_loop())
+            res  = await self.handle(task)
+            
+    def run(self):
+        _transport, _protocol = self.loop.run_until_complete(self.listen)
+        self.loop.run_until_complete(self.fetch_and_handle_loop())

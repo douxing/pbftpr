@@ -5,16 +5,17 @@ from .types import TaskType, Task
 class Client(Node):
     def __init__(self,
                  private_key:str, public_key:str,
-                 replica_principals = [],
+                 client_principals = [],
                  *args, **kwargs):
 
-        self.index = None # this is not a consensus replia
-        for index, p in enumerate(replica_principals):
+        self.index = None
+        for index, p in enumerate(client_principals):
             if p.public_key is public_key:
-                self.index == index
+                self.index = index
                 p.private_key = private_key
 
-        super().__init__(*args, **kwargs)
+        super().__init__(client_principals = client_principals,
+                         *args, **kwargs)
 
     @property
     def principal(self) -> Principal:
