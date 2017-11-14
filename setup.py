@@ -10,8 +10,8 @@ with open('pbft/__init__.py', 'rb') as f:
 
 _install_requires = [
     'click',
-    'coincurve',
     'rlp',
+    'rsa',
     'toml',
 ]
 

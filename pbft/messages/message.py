@@ -1,10 +1,9 @@
 from enum import IntEnum
-
-from rlp import Serializable
-from rlp.sedes import big_endian_int
+import functools
+import re
 
 class MessageTag(IntEnum):
-    FREE_MSSAGE = 0
+    FREE_MESSAGE = 0
     REQUEST = 1
     REPLY = 2
     PRE_PREPARE = 3
@@ -23,6 +22,12 @@ class MessageTag(IntEnum):
     QUERY_STABLE = 16
     REPLY_STABLE = 17
 
-class Message():
+class BaseMessage():
     def __init__(self):
-        self.payload = None
+        pass
+        
+    @property
+    def tag(self) -> MessageTag:
+        tag_name = re.sub('(.)([A-Z][a-z]+)', r'\1_\2',
+                          self.__class__.__name__).upper()
+        return MessageTag[tag_name]

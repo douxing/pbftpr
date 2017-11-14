@@ -1,6 +1,9 @@
-import binascii
+import rsa
 
 class Principal():
+    
+    hash_method = 'SHA-256'
+
     def __init__(self,
                  index:int,
                  private_key = None, public_key = None,
@@ -14,8 +17,17 @@ class Principal():
 
         # using hmac-256 for session keys
         self.outkey = None
+        self.outkeyts = 0 # outkey timestamp
         self.inkey = None
-        self.keyts = None
 
-    def sign(self):
-        pass
+    def sign(self, message:bytes) -> bytes:
+        return rsa.sign(message, self.private_key, self.hash_method)
+
+    def verify(self, message:bytes, signature) -> bool:
+        return rsa.verify(message, signature, self.hash_method)
+
+    def encrypt(self, message:bytes) -> bytes:
+        return rsa.encrypt(message, self.public_key)
+
+    def decrypt(self, message:bytes) -> bytes:
+        return rsa.encrypt(message, self.private_key)

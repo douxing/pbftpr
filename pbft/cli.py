@@ -4,7 +4,7 @@ import os
 import sys
 
 import click
-import coincurve
+import rsa
 import toml
 
 from .node import Node
@@ -17,11 +17,12 @@ def cli_main():
     pass
 
 @cli_main.command()
+@click.option('--keysize', default=1024)
 @click.option('-n', default = 4)
 @click.option('-c', default = 1)
 @click.option('--force', '-f', is_flag = True)
 @click.argument('outfolder', required = True)
-def gen(n, c, force, outfolder):
+def gen(keysize, n, c, force, outfolder):
     try:
         os.mkdir(outfolder)
     except FileExistsError as e:
@@ -42,38 +43,48 @@ def gen(n, c, force, outfolder):
 
     # generate keys for replicas and clients
     for name, count in [('replica', n), ('client', c)]:
-        keys = []
+        pubkeys = []
         for i in range(count):
-            k = coincurve.PrivateKey() 
-            keys.append(k)
+            (pubkey, privkey) = rsa.newkeys(keysize)
+            pubkeys.append(pubkey)
+
+            privkey_fname = '{}_{}.rsa'.format(name, i)
+            pubkey_fname = '{}_{}.rsa.pub'.format(name, i)
+
+            with open(privkey_fname, 'w') as f:
+                f.write(privkey.save_pkcs1().decode())
+
+            with open(pubkey_fname, 'w') as f:
+                f.write(pubkey.save_pkcs1().decode())
+            
             with open('{}_{}.toml'.format(name, i), 'w') as f:
                 toml.dump({
                     'title': '{}_{}'.format(name, i),
                     'node': {
                         'index': i,
                         'type': name,
-                        'private_key': k.to_hex(),
-                        'public_key': binascii.b2a_hex(
-                            k.public_key.format()).decode(),
+                        'private_key_file': privkey_fname,
+                        'public_key_file': pubkey_fname,
                     }
                 }, f)
+                
             
-        pubkeys = dict()
-        pubkeys['title'] = '{}'.format(name)
-        pubkeys['nodes_count'] = count
-        pubkeys['nodes'] = []
-        for i, k in enumerate(keys):
-            pubkeys['nodes'].append({
+        configs = dict()
+        configs['title'] = '{}'.format(name)
+        configs['nodes_count'] = count
+        configs['nodes'] = []
+        for i, k in enumerate(pubkeys):
+            configs['nodes'].append({
                 'index': i,
                 'type': name,
-                'public_key': binascii.b2a_hex(k.public_key.format()).decode(),
+                'public_key_file': '{}_{}.rsa.pub'.format(name, i),
                 'ip': '127.0.0.1',
                 'port': port_index,
             })
             port_index += 1
 
         with open('{}_configs.toml'.format(name), 'w') as f:
-            toml.dump(pubkeys, f)
+            toml.dump(configs, f)
     
     os.chdir(_owd)
     print('''Successfully generated!
@@ -107,34 +118,36 @@ def run(replica_count, fault_count, client_count,
     else:
         node_type = _nc['node']['type']
         
-    if 'private_key' not in _nc['node']:
-        print("node_config 'node' should have 'private_key'!")
+    if 'private_key_file' not in _nc['node']:
+        print("node_config 'node' should have 'private_key_file'!")
         sys.exit(-1)
     else:
-        private_key = coincurve.PrivateKey.from_hex(_nc['node']['private_key'])
+        with open(_nc['node']['private_key_file']) as f:
+            private_key = rsa.PrivateKey.load_pkcs1(f.read())
 
-    if 'public_key' not in _nc['node']:
-        public_key = private_key.public_key # @see lib coincurve
+    if 'public_key_file' not in _nc['node']:
+        print("node_config 'node' should have 'public_key_file'!")
+        sys.exit(-1)
     else:
-        public_key = coincurve.PublicKey(
-            binascii.a2b_hex(_nc['node']['public_key'].encode()))
+        with open(_nc['node']['public_key_file']) as f:
+            public_key =  rsa.PublicKey.load_pkcs1(f.read())
 
     # genrate principals for replicas and clients
     replica_principals = []
     for index, r in enumerate(_rcs['nodes']):
-        p = Principal(index,
-                      public_key = coincurve.PublicKey(
-                          binascii.a2b_hex(r['public_key'].encode())),
-                      ip = r['ip'], port = r['port'])
-        replica_principals.append(p)
+        with open(r['public_key_file']) as f:
+            p = Principal(index,
+                          public_key = rsa.PublicKey.load_pkcs1(f.read()),
+                          ip = r['ip'], port = r['port'])
+            replica_principals.append(p)
         
     client_principals = []
     for index, c in enumerate(_ccs['nodes']):
-        p = Principal(index,
-                      public_key = coincurve.PublicKey(
-                          binascii.a2b_hex(r['public_key'].encode())),
-                      ip = r['ip'], port = r['port'])
-        client_principals.append(p)
+        with open(r['public_key_file']) as f:        
+            p = Principal(index,
+                          public_key = rsa.PublicKey.load_pkcs1(f.read()),
+                          ip = r['ip'], port = r['port'])
+            client_principals.append(p)
 
     n = replica_count or len(replica_principals)
     f = fault_count or n // 3

@@ -65,7 +65,6 @@ class Node():
     def sendto(self, data, addr):
         pass
 
-
     async def handle(self, task:Task):
         """Handle all kinds of tasks
         """
