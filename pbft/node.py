@@ -35,6 +35,7 @@ class Node():
             lambda: DatagramServer(self),
             local_addr=(self.principal.ip, self.principal.port))
 
+        self.last_new_key = None
         self.auth_interval = auth_interval
 
         super().__init__(*args, **kwargs)
@@ -61,13 +62,15 @@ class Node():
         return self.reqid
 
     def send_new_key():
-        pass
+        self.last_new_key = None
+        # TODO: 
 
     async def notify(self, task:Task):
         await self.task_queue.put(task)
 
     def sendto(self, data, addr):
         pass
+
 
     async def handle(self, task:Task):
         """Handle all kinds of tasks
@@ -79,7 +82,7 @@ class Node():
         while res:
             task = await self.task_queue.get()
             res  = await self.handle(task)
-            
+
     def run(self):
         _transport, _protocol = self.loop.run_until_complete(self.listen)
         self.loop.run_until_complete(self.fetch_and_handle_loop())

@@ -20,6 +20,11 @@ class Replica(Node):
                 self.index = index
                 p.private_key = private_key
 
+        self.status_interval = status_interval
+        self.view_change_interval = view_change_interval
+        self.recovery_interval = recovery_interval
+        self.idle_interval = idle_interval
+
         super().__init__(replica_principals = replica_principals,
                          *args, **kwargs)
 
