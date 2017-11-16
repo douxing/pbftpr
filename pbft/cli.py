@@ -12,6 +12,14 @@ from .replica import Replica
 from .principal import Principal
 from .client import Client
 
+gintervals = dict({
+    'auth': 30 * 60 * 1000,
+    'status': 150,
+    'view_change': 5000,
+    'recovery': 90 * 24 * 60 * 60 * 1000,
+    'idle': 120 * 1000,
+})
+
 @click.group(invoke_without_command=False)
 def cli_main():
     pass
@@ -58,16 +66,23 @@ def gen(keysize, n, c, force, outfolder):
                 f.write(pubkey.save_pkcs1().decode())
             
             with open('{}_{}.toml'.format(name, i), 'w') as f:
-                toml.dump({
+                d = {
                     'title': '{}_{}'.format(name, i),
                     'node': {
                         'index': i,
                         'type': name,
                         'private_key_file': privkey_fname,
                         'public_key_file': pubkey_fname,
+                        'auth_interval': gintervals['auth'],
                     }
-                }, f)
-                
+                }
+
+                if name == 'replica':
+                    # add additional parameters
+                    for n in ('status', 'view_change', 'recovery', 'idle'):
+                        d['node']['{}_interval'.format(n)] = gintervals[n]
+
+                toml.dump(d, f)
             
         configs = dict()
         configs['title'] = '{}'.format(name)
@@ -132,6 +147,12 @@ def run(replica_count, fault_count, client_count,
         with open(_nc['node']['public_key_file']) as f:
             public_key =  rsa.PublicKey.load_pkcs1(f.read())
 
+    if 'auth_interval' not in _nc['node']:
+        print("Using default auth_interval({})".format(gintervals['auth']))
+        auth_interval = gintervals['auth']
+    else:
+        auth_interval = _nc['node']['auth_interval']
+
     # genrate principals for replicas and clients
     replica_principals = []
     for index, r in enumerate(_rcs['nodes']):
@@ -157,11 +178,20 @@ def run(replica_count, fault_count, client_count,
         'f': f,
         'private_key': private_key,
         'public_key': public_key,
+        'auth_interval':  auth_interval,
         'replica_principals': replica_principals,
         'client_principals': client_principals,
     })
 
     if node_type == 'replica':
+        for n in ['status', 'view_change', 'recovery', 'idle']:
+            _name = '{}_interval'.format(n)
+            if _name not in _nc['node']:
+                print("Using default {}({})".format(_name, gintervals[name]))
+                kwargs[_name] = gintervals[_name]
+            else:
+                kwargs[_name] = _nc['node'][_name]
+
         node = Replica(**kwargs)
     elif node_type == 'client':
         node = Client(**kwargs)

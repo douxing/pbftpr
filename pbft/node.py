@@ -4,12 +4,14 @@ import math
 
 from .datagram_server import DatagramServer
 from .principal import Principal
-from .types import Reqid, Seqno, View, TaskType, Task
+from .types import Reqid, Seqno, View
+from .task import TaskType, Task
 from .messages import NewKey
 
 class Node():
     def __init__(self,
-                 n:int = 0, f:int = 0,
+                 n:int, f:int,
+                 auth_interval:int,
                  replica_principals = [], client_principals = [],
                  loop = asyncio.get_event_loop(),
                  *args, **kwargs):
@@ -32,6 +34,8 @@ class Node():
         self.listen = self.loop.create_datagram_endpoint(
             lambda: DatagramServer(self),
             local_addr=(self.principal.ip, self.principal.port))
+
+        self.auth_interval = auth_interval
 
         super().__init__(*args, **kwargs)
 

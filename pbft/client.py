@@ -1,6 +1,6 @@
 from .principal import Principal
 from .node import Node
-from .types import TaskType, Task
+from .task import TaskType, Task
 
 class Client(Node):
     def __init__(self,

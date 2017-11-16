@@ -39,7 +39,7 @@ class NewKey(BaseMessage):
         super().__init__(*args, **kwargs)
 
     def contents(self) -> bytes:
-        
+        pass
 
     def payloads(self) -> bytes:
         pass

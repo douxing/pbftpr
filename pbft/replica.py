@@ -2,11 +2,15 @@ import binascii
 
 from .principal import Principal
 from .node import Node
-from .types import TaskType, Task
+from .task import TaskType, Task
 
 class Replica(Node):
     def __init__(self,
                  private_key, public_key,
+                 status_interval:int,
+                 view_change_interval:int,
+                 recovery_interval:int,
+                 idle_interval:int,
                  replica_principals = [],
                  *args, **kwargs):
 

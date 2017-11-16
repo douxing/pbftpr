@@ -1,6 +1,6 @@
 import asyncio
 
-from .types import TaskType, Task
+from .task import TaskType, Task
 
 class DatagramServer(asyncio.DatagramProtocol):
     def __init__(self, node):
