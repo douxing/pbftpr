@@ -6,12 +6,12 @@ from .datagram_server import DatagramServer
 from .principal import Principal
 from .types import Reqid, Seqno, View
 from .task import TaskType, Task
-from .messages import NewKey
+from .message import BaseMessage, NewKey
 
 class Node():
     def __init__(self,
                  n:int, f:int,
-                 auth_interval:int,
+                 auth_interval:int, # in milli seconds
                  replica_principals = [], client_principals = [],
                  loop = asyncio.get_event_loop(),
                  *args, **kwargs):
@@ -36,7 +36,8 @@ class Node():
             local_addr=(self.principal.ip, self.principal.port))
 
         self.last_new_key = None
-        self.auth_interval = auth_interval
+        self.auth_timer = None
+        self.auth_interval = auth_interval / 1000.0 # in seconds
 
         super().__init__(*args, **kwargs)
 
@@ -57,32 +58,105 @@ class Node():
 
         return True
 
-    def new_reqid() -> Reqid:
+    def new_reqid(self) -> Reqid:
         self.reqid += 1
         return self.reqid
 
-    def send_new_key():
-        self.last_new_key = None
-        # TODO: 
+    def auth_handler(self, sleep_task = None):
+        self.loop.call_soon(self.send_new_key)
 
-    async def notify(self, task:Task):
-        await self.task_queue.put(task)
+    def send_new_key(self):
+        if __debug__:
+            print('node send_new_key')
 
-    def sendto(self, data, addr):
+        new_key = NewKey(
+            node_type = self.TYPE,
+            index = self.index,
+            reqid = self.new_reqid())
+
+        for p in self.replica_principals:
+            if p is self.principal:
+                nounce = Principal.zero_hmac_nounce
+            else:
+                nounce = p.gen_inkey()
+
+            new_key.hmac_keys.append(p.encrypt(nounce))
+
+        new_key.gen_contents()
+        new_key.signature = self.principal.sign(new_key.contents)
+        new_key.gen_payloads()
+        
+        self.sendto(new_key, 'ALL_REPLICAS')
+        self.last_new_key = new_key
+
+        # reset self.auth_timer
+        if self.auth_timer and not self.auth_timer.done():
+            self.auth_timer.cancel()
+
+        self.auth_timer = self.loop.create_task(
+            asyncio.sleep(self.auth_interval, loop = self.loop))
+
+        self.auth_timer.add_done_callback(self.auth_handler)
+
+    def verify_new_key(self, new_key):
+        print('verify new key: {}'.format(new_key))
         pass
 
+    def parse_message(self, data, addr):
+        if __debug__:
+            sender_principal = None
+            for p in self.replica_principals + self.client_principals:
+                if p.addr == addr:
+                    sender_principal = p
+                    break
+
+            if not sender_principal:
+                print('reject to process unknown addr: {}'.addr)
+                return
+        
+        try:
+            tag, frame = BaseMessage.parse_frame(data)
+            cls = globals()[tag.name]
+            message = cls.parse_frame(frame)
+            print('recv message: {}'.format(message))
+        except ValueError as exc:
+            print('parse error: {}'.format(exc))
+
+    def notify(self, task:Task):
+        self.loop.create_task(self.task_queue.put(task))
+
+    def sendto(self, data:bytes, addr):
+        if isinstance(data, BaseMessage):
+            data = data.gen_frame()
+
+        if addr == 'ALL_REPLICAS':
+            for p in self.replica_principals:
+                self.sendto(data, (p.ip, p.port))
+        elif addr == 'ALL_CLIENTS':
+            for p in self.client_principals:
+                self.sendto(data, (p.ip, p.port))
+        else:
+            # unicast to addr
+            self.transport.sendto(data, addr)
 
     async def handle(self, task:Task):
         """Handle all kinds of tasks
         """
         raise NotImplementedError
 
-    async def fetch_and_handle_loop(self):
-        res = True
-        while res:
-            task = await self.task_queue.get()
-            res  = await self.handle(task)
+    async def fetch_and_handle(self):
+        task = await self.task_queue.get()
+        return await self.handle(task)
 
     def run(self):
-        _transport, _protocol = self.loop.run_until_complete(self.listen)
-        self.loop.run_until_complete(self.fetch_and_handle_loop())
+        # create datagram server
+        self.transport, self.protocol = self.loop.run_until_complete(self.listen)
+        res = self.loop.run_until_complete(self.fetch_and_handle())
+
+        assert res # receive CONN_MADE
+        self.send_new_key()
+
+        while True:
+            res = self.loop.run_until_complete(self.fetch_and_handle())
+            if not res:
+                break

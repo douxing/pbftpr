@@ -1,10 +1,14 @@
 import binascii
+import datetime
 
+from .debug import pprint_task
 from .principal import Principal
 from .node import Node
 from .task import TaskType, Task
 
 class Replica(Node):
+    TYPE = 1
+
     def __init__(self,
                  private_key, public_key,
                  status_interval:int,
@@ -38,7 +42,7 @@ class Replica(Node):
         return super().is_valid
 
     async def handle(self, task:Task) -> bool:
-        # print('task is {}'.format(task))
+        pprint_task(task)
 
         if task.type == TaskType.CONN_MADE:
             pass

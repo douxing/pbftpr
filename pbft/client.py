@@ -3,6 +3,8 @@ from .node import Node
 from .task import TaskType, Task
 
 class Client(Node):
+    TYPE = 2
+
     def __init__(self,
                  private_key:str, public_key:str,
                  client_principals = [],

@@ -9,8 +9,7 @@ class DatagramServer(asyncio.DatagramProtocol):
 
     def connection_made(self, transport):
         self.transport = transport
-        asyncio.ensure_future(
-            self.node.notify(Task(TaskType.CONN_MADE, transport)))
+        self.node.notify(Task(TaskType.CONN_MADE, transport))
 
     def connection_lost(self, exc):
         """Lost connection
@@ -24,8 +23,7 @@ class DatagramServer(asyncio.DatagramProtocol):
     def datagram_received(self, data, addr):
         """Messages are node kind specific
         """
-        asyncio.ensure_future(
-            self.node.notify(Task(TaskType.PEER_MSG, (data, addr))))
+        self.node.notify(Task(TaskType.PEER_MSG, (data, addr)))
 
     def error_received(self, exc):
         # print('Node transport error: {}'.format(exc))

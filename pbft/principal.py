@@ -1,8 +1,14 @@
+import secrets
+
 import rsa
+
+from .message import NewKey
 
 class Principal():
     
     hash_method = 'SHA-256'
+
+    zero_hmac_nounce = bytes(NewKey.hmac_nounce_length)
 
     def __init__(self,
                  index:int,
@@ -16,9 +22,9 @@ class Principal():
         self.public_key = public_key
 
         # using hmac-256 for session keys
-        self.outkey = None
+        self.outkey = self.zero_hmac_nounce
         self.outkeyts = 0 # outkey timestamp
-        self.inkey = None
+        self.inkey = self.zero_hmac_nounce
 
     def sign(self, message:bytes) -> bytes:
         return rsa.sign(message, self.private_key, self.hash_method)
@@ -31,3 +37,7 @@ class Principal():
 
     def decrypt(self, message:bytes) -> bytes:
         return rsa.encrypt(message, self.private_key)
+
+    def gen_inkey(self):
+        self.inkey = secrets.token_bytes(NewKey.hmac_nounce_length)
+        return self.inkey
