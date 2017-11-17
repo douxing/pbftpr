@@ -8,5 +8,5 @@ def serialize(message) -> bytes:
     return b'0x60' + message.payloads()
 
 def deserialize(payload:bytes) -> BaseMessage:
-    
+    pass
 

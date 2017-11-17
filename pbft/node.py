@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime
 import math
+import sys
 
 from .datagram_server import DatagramServer
 from .principal import Principal
@@ -25,6 +26,7 @@ class Node():
         self.view = View(0)
 
         self.loop = loop
+
         # use task queue to queue tasks
         self.task_queue = asyncio.Queue(loop=self.loop)
 
@@ -69,22 +71,9 @@ class Node():
         if __debug__:
             print('node send_new_key')
 
-        new_key = NewKey(
-            node_type = self.TYPE,
-            index = self.index,
-            reqid = self.new_reqid())
-
-        for p in self.replica_principals:
-            if p is self.principal:
-                nounce = Principal.zero_hmac_nounce
-            else:
-                nounce = p.gen_inkey()
-
-            new_key.hmac_keys.append(p.encrypt(nounce))
-
-        new_key.gen_contents()
-        new_key.signature = self.principal.sign(new_key.contents)
-        new_key.gen_payloads()
+        new_key = NewKey.from_principals(
+            self.TYPE, self.index, self.new_reqid(),
+            self.principal, self.replica_principals)
         
         self.sendto(new_key, 'ALL_REPLICAS')
         self.last_new_key = new_key
@@ -98,9 +87,8 @@ class Node():
 
         self.auth_timer.add_done_callback(self.auth_handler)
 
-    def verify_new_key(self, new_key):
+    def recv_new_key(self, new_key):
         print('verify new key: {}'.format(new_key))
-        pass
 
     def parse_frame(self, data, addr):
         if __debug__:
@@ -115,19 +103,19 @@ class Node():
                 return
         
         try:
-            tag, frame = BaseMessage.parse_frame(data)
-            cls = globals()[tag.name]
-            message = cls.parse_frame(frame)
-            print('recv message: {}'.format(message))
+            tag, payloads = BaseMessage.parse_frame(data)
+            cls = getattr(sys.modules[__name__], tag.name)
+            message = cls.from_payloads(payloads)
         except ValueError as exc:
             print('parse error: {}'.format(exc))
+            return
 
     def notify(self, task:Task):
         self.loop.create_task(self.task_queue.put(task))
 
     def sendto(self, data:bytes, addr):
         if isinstance(data, BaseMessage):
-            data = data.gen_frame()
+            data = data.frame
 
         if addr == 'ALL_REPLICAS':
             for p in self.replica_principals:

@@ -2,13 +2,12 @@ import secrets
 
 import rsa
 
-from .message import NewKey
-
 class Principal():
     
     hash_method = 'SHA-256'
 
-    zero_hmac_nounce = bytes(NewKey.hmac_nounce_length)
+    hmac_nounce_length = 32
+    zero_hmac_nounce = bytes(hmac_nounce_length)
 
     def __init__(self,
                  index:int,
@@ -39,5 +38,5 @@ class Principal():
         return rsa.encrypt(message, self.private_key)
 
     def gen_inkey(self):
-        self.inkey = secrets.token_bytes(NewKey.hmac_nounce_length)
+        self.inkey = secrets.token_bytes(self.hmac_nounce_length)
         return self.inkey

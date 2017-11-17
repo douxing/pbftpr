@@ -8,8 +8,6 @@ from .message import MessageTag, BaseMessage
 
 class NewKey(BaseMessage):
 
-    hmac_nounce_length = 32
-
     contents_sedes = List([
         big_endian_int, # sender type
         big_endian_int, # sender index
@@ -23,54 +21,53 @@ class NewKey(BaseMessage):
     ])
 
     def __init__(self,
-                 node_type:int,
-                 index:int,
-                 reqid:Reqid,
-                 *args, **kwargs):
+                 node_type:int, index:int, reqid:Reqid, hmac_keys,
+                 contents, signature, payloads):
         """Session key
         """
         self.node_type = node_type
         self.index = index
         self.reqid = reqid
-        self.hmac_keys = []
-        self.signature = None
+        self.hmac_keys = hmac_keys
 
-        self.contents = None
-        self.payloads = None
-        
-        super().__init__(*args, **kwargs)
+        self.contents = contents
+        self.signature = signature
+        self.payloads = payloads
 
-    def gen_contents(self):
-        if not self.hmac_keys:
-            raise ValueError('invalid hmac_keys')
-
-        self.contents = b''
-        self.contents += rlp.encode(
-            [self.node_type, self.index, self.hmac_keys, self.reqid],
-            self.contents_sedes)
-
-        return self.contents
-
-    def gen_payloads(self):
-        """Gerenate payloads from contents and signature
-        """
-        if type(self.contents) is not bytes:
-            raise ValueError('invalid contents')
-        elif not self.signature:
-            raise ValueError('invalid signature')
-
-        self.payloads = rlp.encode([self.contents, self.signature],
-                                   self.payloads_sedes)
-
-        return self.payloads
+        super().__init__()
 
     @classmethod
-    def parse_frame(cls, frame:bytes):
-        print('new_key parse_frame recv: {}'.format(frame[:10]))
+    def from_principals(cls,
+                        node_type:int, index:int, reqid:Reqid,
+                        principal, replica_principals):
 
+        hmac_keys = []
+        for p in replica_principals:
+            if p is principal:
+                nounce = p.zero_hmac_nounce
+            else:
+                nounce = p.gen_inkey()
+
+            hmac_keys.append(p.encrypt(nounce))
+
+        contents = rlp.encode([node_type, index, hmac_keys, reqid],
+                              cls.contents_sedes)
+        signature = principal.sign(contents)
+        payloads = rlp.encode([contents, signature],
+                              cls.payloads_sedes)
+
+        return cls(node_type, index, reqid, hmac_keys,
+                   contents, signature, payloads)
+
+    @classmethod
+    def from_payloads(cls, payloads):
         try:
-            obj = rlp.decode(frame, cls.raw_sedes)
+            [contents, signature] = rlp.decode(payloads, cls.payloads_sedes)
+
+            [node_type, index, hmac_keys, reqid] = (
+                rlp.decode(contents, cls.contents_sedes))
+
+            return cls(node_type, index, reqid, hmac_keys,
+                       contents, signature, payloads)
         except rlp.DecodingError as exc:
             raise ValueError('decoding error: {}'.format(exc))
-
-        return obj
