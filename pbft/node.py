@@ -102,11 +102,11 @@ class Node():
         print('verify new key: {}'.format(new_key))
         pass
 
-    def parse_message(self, data, addr):
+    def parse_frame(self, data, addr):
         if __debug__:
             sender_principal = None
             for p in self.replica_principals + self.client_principals:
-                if p.addr == addr:
+                if (p.ip, p.port) == addr:
                     sender_principal = p
                     break
 

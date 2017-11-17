@@ -46,8 +46,11 @@ class BaseMessage():
         this method should ONLY be called with complete message,
         which has both tag and payloads attributes
         """
-        return (self.prefix + self.tag.to_bytes(1, byteorder='big')
+        frame = (self.prefix + self.tag.to_bytes(1, byteorder='big')
                 + self.infix + self.payloads)
+        print(self.infix)
+        print(frame[:10])
+        return frame
 
     @classmethod
     def parse_frame(cls, frame:bytes) -> (MessageTag, bytes):
@@ -58,7 +61,8 @@ class BaseMessage():
         
         :data should begin with prefix + MessageType + infix
         """
-        if cls.prefix != frame[:3] or frame[4] != cls.infix:
-            raise ValueError('illegal message')
+        print('message parse_frame recv: {}'.format(frame[:10]))
+        if cls.prefix != frame[:3] or frame[4:5] != cls.infix:
+            raise ValueError('illegal frame')
         
         return MessageTag(frame[3]), frame[5:]

@@ -65,7 +65,9 @@ class NewKey(BaseMessage):
         return self.payloads
 
     @classmethod
-    def parse(cls, frame:bytes):
+    def parse_frame(cls, frame:bytes):
+        print('new_key parse_frame recv: {}'.format(frame[:10]))
+
         try:
             obj = rlp.decode(frame, cls.raw_sedes)
         except rlp.DecodingError as exc:

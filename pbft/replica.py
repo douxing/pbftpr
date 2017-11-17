@@ -49,7 +49,8 @@ class Replica(Node):
         elif task.type == TaskType.CONN_LOST:
             pass
         elif task.type == TaskType.PEER_MSG:
-            pass
+            data, addr = task.item
+            self.parse_frame(data, addr)
         elif task.type == TaskType.PERR_ERR:
             pass
         elif task.type == TaskType.TIMER:
