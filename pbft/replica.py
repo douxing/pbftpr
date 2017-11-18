@@ -1,10 +1,12 @@
 import binascii
 import datetime
+import traceback
 
-from .debug import pprint_task
 from .principal import Principal
 from .node import Node
-from .task import TaskType, Task
+
+from .types import Reqid, Seqno, View, TaskType, Task
+from .utils import print_new_key, print_task
 
 class Replica(Node):
     type = Node.replica_type
@@ -41,19 +43,37 @@ class Replica(Node):
     def is_valid(self):
         return super().is_valid
 
-    def recv_new_key(self, new_key, principal):
-        # firstly, verify signature
-        if not principal.verify(new_key.contents, new_key.signature):
-            print('invalid signature: {}'.format(principal))
+    def recv_new_key(self, new_key, pp):
+        """
+        
+        :pp peer_principal
+        """
+        try:
+            assert new_key.index == pp.index
 
-        # decode and assign outkey for the principal
-        self.principal.outkey = self.principal.decrypt(
-            new_key.hmac_keys[self.index])
-        if self.principal.outkey_reqid < new_key.reqid:
-            self.principal.outkey_reqid = new_key.reqid
+            # firstly, verify signature
+            if not pp.verify(new_key.contents, new_key.signature):
+                raise ValueError('invalid signature')
 
+            # this comes fist, 'cause whenever decrypt failed,
+            # decrypt will raise error, thus break the assignment
+            outkey = self.principal.decrypt(new_key.hmac_keys[self.index])
+
+            if pp.outkey_reqid < new_key.reqid:
+                pp.outkey = outkey
+                pp.outkey_reqid = new_key.reqid
+            else:
+                raise ValueError('invalid reqid(timestamp)')
+
+            print_new_key(new_key, pp)
+        except:
+            if __debug__:
+                traceback.print_exc()
+            else:
+                pass # TODO: log
+            
     async def handle(self, task:Task) -> bool:
-        pprint_task(task)
+        print_task(task)
 
         if task.type == TaskType.CONN_MADE:
             pass

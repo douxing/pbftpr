@@ -32,9 +32,6 @@ class Principal():
         return (self.ip, self.port)
 
     def sign(self, message:bytes) -> bytes:
-        print(self.private_key)
-        print(self.public_key)
-
         return rsa.sign(message, self.private_key, self.hash_method)
 
     def verify(self, message:bytes, signature) -> bool:

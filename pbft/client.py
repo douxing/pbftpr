@@ -1,6 +1,7 @@
+from .types import Reqid, Seqno, View, TaskType, Task
 from .principal import Principal
 from .node import Node
-from .task import TaskType, Task
+
 
 class Client(Node):
     type = Node.client_type

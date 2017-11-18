@@ -4,12 +4,11 @@ import math
 import sys
 import traceback
 
+from .types import Reqid, Seqno, View, TaskType, Task
 from .datagram_server import DatagramServer
 from .principal import Principal
-from .types import Reqid, Seqno, View
-from .task import TaskType, Task
 from .message import MessageTag, BaseMessage, NewKey
-from .utils import utcnow_reqid
+from .utils import utcnow_reqid, print_new_key
 
 class Node():
 
@@ -71,30 +70,30 @@ class Node():
         return self.reqid
 
     def find_principal(self, message, addr):
-        principal = None
         try:
             if message.node_type == self.replica_type:
                 principal = self.replica_principals[message.index]
             elif message.node_type == self.client_type:
                 principal = self.client_principals[message.index]
 
-            # TODO: restrict addr in ip range
-            if principal.addr != addr:
-                s = ('addr mismatch: principal<{}> actually<{}>'
-                     .format(principal.addr, addr))
+            assert principal.index == message.index
 
-                if not __debug__:
-                    s += '\nigoring message ...'
-                    principal = None
+            # TODO: restrict addr in ip range?
+            assert principal.addr == addr
 
-                print(s)
-
+            return principal
         except IndexError:
-            traceback.print_exc()
+            if __debug__:
+                traceback.print_exc()
+            else:
+                pass # TODO: log
         except BaseException:
-            traceback.print_exc()
+            if __debug__:
+                traceback.print_exc()
+            else:
+                pass # TODO: log
 
-        return principal
+        return None
 
     def auth_handler(self, sleep_task = None):
         self.loop.call_soon(self.send_new_key)
@@ -134,11 +133,15 @@ class Node():
 
             receiver(message, principal)
         except ValueError:
-            traceback.print_exc()
-            return
-        except BaseException:
-            traceback.print_exc()
-            return
+            if __debug__:
+                traceback.print_exc()
+            else:
+                pass # TODO: log
+        except:
+            if __debug__:
+                traceback.print_exc()
+            else:
+                pass # TODO: log
 
     def notify(self, task:Task):
         self.loop.create_task(self.task_queue.put(task))

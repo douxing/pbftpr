@@ -76,7 +76,6 @@ class BaseMessage():
         
         :data should begin with prefix + MessageTag + infix
         """
-        print('message parse_frame recv: {}'.format(frame[:10]))
         if cls.prefix != frame[:3] or frame[4:5] != cls.infix:
             raise ValueError('illegal frame head')
         
