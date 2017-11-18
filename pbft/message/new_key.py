@@ -36,6 +36,11 @@ class NewKey(BaseMessage):
 
         super().__init__()
 
+    def __str__(self):
+        return '{}:{}\n{}\n{}\n{}'.format(self.node_type, self.index,
+                                       self.reqid, self.hmac_keys,
+                                       self.signature)
+
     @classmethod
     def from_principals(cls,
                         node_type:int, index:int, reqid:Reqid,

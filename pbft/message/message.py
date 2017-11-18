@@ -1,6 +1,8 @@
 from enum import IntEnum
 import re
 
+from ..utils import camel_to_snake
+
 class MessageTag(IntEnum):
     BaseMessage = 0 # FreeMessage
     Request = 1
@@ -20,6 +22,12 @@ class MessageTag(IntEnum):
     Fetch = 15
     QueryStable = 16
     ReplyStable = 17
+
+    @classmethod
+    def snake_name(cls, tag):
+        return _snake_names[tag]
+
+_snake_names = { t: camel_to_snake(t.name) for t in MessageTag }
 
 class BaseMessage():
 

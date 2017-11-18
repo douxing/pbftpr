@@ -7,7 +7,7 @@ from .datagram_server import DatagramServer
 from .principal import Principal
 from .types import Reqid, Seqno, View
 from .task import TaskType, Task
-from .message import BaseMessage, NewKey
+from .message import MessageTag, BaseMessage, NewKey
 
 class Node():
     def __init__(self,
@@ -106,8 +106,16 @@ class Node():
             tag, payloads = BaseMessage.parse_frame(data)
             cls = getattr(sys.modules[__name__], tag.name)
             message = cls.from_payloads(payloads)
+
+            receiver = getattr(self,
+                               'recv_{}'.format(MessageTag.snake_name(tag)))
+
+            receiver(message)
         except ValueError as exc:
-            print('parse error: {}'.format(exc))
+            print('parse frame value error: {}'.format(exc))
+            return
+        except BaseException as exc:
+            print('parse frame error: {}'.format(exc))
             return
 
     def notify(self, task:Task):
