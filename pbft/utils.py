@@ -1,9 +1,14 @@
+from datetime import datetime
+import math
 import re
 
-def aligned_size(size:int) -> int:
-    alignment = 8
-    nsize += alignment if size % algnment else 0
-    return nsize
+from .types import Reqid
+
+def utcnow_ts():
+    return datetime.utcnow().timestamp()
+
+def utcnow_reqid():
+    return Reqid(math.floor(utcnow_ts() * 10**9))
 
 def camel_to_snake(name):
     return re.sub('(.)([A-Z])', r'\1_\2', name).lower()

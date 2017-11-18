@@ -7,7 +7,7 @@ from .node import Node
 from .task import TaskType, Task
 
 class Replica(Node):
-    TYPE = 1
+    type = Node.replica_type
 
     def __init__(self,
                  private_key, public_key,
@@ -40,6 +40,17 @@ class Replica(Node):
     @property
     def is_valid(self):
         return super().is_valid
+
+    def recv_new_key(self, new_key, principal):
+        # firstly, verify signature
+        if not principal.verify(new_key.contents, new_key.signature):
+            print('invalid signature: {}'.format(principal))
+
+        # decode and assign outkey for the principal
+        self.principal.outkey = self.principal.decrypt(
+            new_key.hmac_keys[self.index])
+        if self.principal.outkey_reqid < new_key.reqid:
+            self.principal.outkey_reqid = new_key.reqid
 
     async def handle(self, task:Task) -> bool:
         pprint_task(task)

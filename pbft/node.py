@@ -2,14 +2,20 @@ import asyncio
 from datetime import datetime
 import math
 import sys
+import traceback
 
 from .datagram_server import DatagramServer
 from .principal import Principal
 from .types import Reqid, Seqno, View
 from .task import TaskType, Task
 from .message import MessageTag, BaseMessage, NewKey
+from .utils import utcnow_reqid
 
 class Node():
+
+    replica_type = 1
+    client_type  = 2
+
     def __init__(self,
                  n:int, f:int,
                  auth_interval:int, # in milli seconds
@@ -30,7 +36,7 @@ class Node():
         # use task queue to queue tasks
         self.task_queue = asyncio.Queue(loop=self.loop)
 
-        self.reqid = Reqid(math.floor(datetime.utcnow().timestamp() * 10**9))
+        self.reqid = utcnow_reqid()
         self.last_new_key = None
 
         self.listen = self.loop.create_datagram_endpoint(
@@ -60,9 +66,35 @@ class Node():
 
         return True
 
-    def new_reqid(self) -> Reqid:
+    def next_reqid(self) -> Reqid:
         self.reqid += 1
         return self.reqid
+
+    def find_principal(self, message, addr):
+        principal = None
+        try:
+            if message.node_type == self.replica_type:
+                principal = self.replica_principals[message.index]
+            elif message.node_type == self.client_type:
+                principal = self.client_principals[message.index]
+
+            # TODO: restrict addr in ip range
+            if principal.addr != addr:
+                s = ('addr mismatch: principal<{}> actually<{}>'
+                     .format(principal.addr, addr))
+
+                if not __debug__:
+                    s += '\nigoring message ...'
+                    principal = None
+
+                print(s)
+
+        except IndexError:
+            traceback.print_exc()
+        except BaseException:
+            traceback.print_exc()
+
+        return principal
 
     def auth_handler(self, sleep_task = None):
         self.loop.call_soon(self.send_new_key)
@@ -72,7 +104,7 @@ class Node():
             print('node send_new_key')
 
         new_key = NewKey.from_principals(
-            self.TYPE, self.index, self.new_reqid(),
+            self.type, self.index, self.next_reqid(),
             self.principal, self.replica_principals)
         
         self.sendto(new_key, 'ALL_REPLICAS')
@@ -87,21 +119,7 @@ class Node():
 
         self.auth_timer.add_done_callback(self.auth_handler)
 
-    def recv_new_key(self, new_key):
-        print('verify new key: {}'.format(new_key))
-
     def parse_frame(self, data, addr):
-        if __debug__:
-            sender_principal = None
-            for p in self.replica_principals + self.client_principals:
-                if (p.ip, p.port) == addr:
-                    sender_principal = p
-                    break
-
-            if not sender_principal:
-                print('reject to process unknown addr: {}'.addr)
-                return
-        
         try:
             tag, payloads = BaseMessage.parse_frame(data)
             cls = getattr(sys.modules[__name__], tag.name)
@@ -110,12 +128,16 @@ class Node():
             receiver = getattr(self,
                                'recv_{}'.format(MessageTag.snake_name(tag)))
 
-            receiver(message)
-        except ValueError as exc:
-            print('parse frame value error: {}'.format(exc))
+            principal = self.find_principal(message, addr)
+            if not principal:
+                raise ValueError('no valid principal found')
+
+            receiver(message, principal)
+        except ValueError:
+            print('parse_frame ValueError: {}'.format(exc))
             return
-        except BaseException as exc:
-            print('parse frame error: {}'.format(exc))
+        except BaseException:
+            traceback.print_exc()
             return
 
     def notify(self, task:Task):

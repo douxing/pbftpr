@@ -2,6 +2,8 @@ import secrets
 
 import rsa
 
+from .types import Reqid
+
 class Principal():
     
     hash_method = 'SHA-256'
@@ -22,8 +24,12 @@ class Principal():
 
         # using hmac-256 for session keys
         self.outkey = self.zero_hmac_nounce
-        self.outkeyts = 0 # outkey timestamp
+        self.outkey_reqid = Reqid(0) # outkey timestamp
         self.inkey = self.zero_hmac_nounce
+
+    @property
+    def addr(self):
+        return (self.ip, self.port)
 
     def sign(self, message:bytes) -> bytes:
         return rsa.sign(message, self.private_key, self.hash_method)
