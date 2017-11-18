@@ -106,7 +106,7 @@ class Node():
         new_key = NewKey.from_principals(
             self.type, self.index, self.next_reqid(),
             self.principal, self.replica_principals)
-        
+
         self.sendto(new_key, 'ALL_REPLICAS')
         self.last_new_key = new_key
 
@@ -134,7 +134,7 @@ class Node():
 
             receiver(message, principal)
         except ValueError:
-            print('parse_frame ValueError: {}'.format(exc))
+            traceback.print_exc()
             return
         except BaseException:
             traceback.print_exc()

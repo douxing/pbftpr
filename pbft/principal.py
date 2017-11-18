@@ -32,16 +32,19 @@ class Principal():
         return (self.ip, self.port)
 
     def sign(self, message:bytes) -> bytes:
+        print(self.private_key)
+        print(self.public_key)
+
         return rsa.sign(message, self.private_key, self.hash_method)
 
     def verify(self, message:bytes, signature) -> bool:
-        return rsa.verify(message, signature, self.hash_method)
+        return rsa.verify(message, signature, self.public_key)
 
     def encrypt(self, message:bytes) -> bytes:
         return rsa.encrypt(message, self.public_key)
 
     def decrypt(self, message:bytes) -> bytes:
-        return rsa.encrypt(message, self.private_key)
+        return rsa.decrypt(message, self.private_key)
 
     def gen_inkey(self):
         self.inkey = secrets.token_bytes(self.hmac_nounce_length)
