@@ -1,5 +1,5 @@
-from .message import MessageType, Message
+from .base_message import BaseMessage
 
-class Checkpoint(Message):
+class Checkpoint(BaseMessage):
     pass
 

@@ -1,4 +1,5 @@
 from .types import Reqid, Seqno, View, TaskType, Task
+from .utils import print_task
 from .principal import Principal
 from .node import Node
 
@@ -25,7 +26,12 @@ class Client(Node):
         """Get principal of this node."""
         return self.client_principals[self.index]
 
+    def send_request():
+        pass
+
     async def handle(self, task:Task) -> bool:
+        print_task(task)
+
         if task.type == TaskType.COMM_MADE:
             pass
         elif task.type == TaskType.COMM_LOST:

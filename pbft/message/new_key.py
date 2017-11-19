@@ -4,7 +4,7 @@ import rlp
 from rlp.sedes import List, CountableList, big_endian_int, raw
 
 from ..types import Reqid
-from .message import MessageTag, BaseMessage
+from .base_message import BaseMessage
 
 class NewKey(BaseMessage):
 

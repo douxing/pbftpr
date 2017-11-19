@@ -99,7 +99,7 @@ class Replica(Node):
         assert res # receive CONN_MADE
         self.send_new_key()
 
-        self.loop.create_task()
+        
 
         while True:
             res = self.loop.run_until_complete(self.fetch_and_handle())
