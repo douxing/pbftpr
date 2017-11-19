@@ -170,14 +170,4 @@ class Node():
         return await self.handle(task)
 
     def run(self):
-        # create datagram server
-        self.transport, self.protocol = self.loop.run_until_complete(self.listen)
-        res = self.loop.run_until_complete(self.fetch_and_handle())
-
-        assert res # receive CONN_MADE
-        self.send_new_key()
-
-        while True:
-            res = self.loop.run_until_complete(self.fetch_and_handle())
-            if not res:
-                break
+        raise NotImplementedError

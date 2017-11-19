@@ -90,3 +90,18 @@ class Replica(Node):
             pass
 
         return True # continue loop
+
+    def run(self):
+        # create datagram server
+        self.transport, self.protocol = self.loop.run_until_complete(self.listen)
+        res = self.loop.run_until_complete(self.fetch_and_handle())
+
+        assert res # receive CONN_MADE
+        self.send_new_key()
+
+        self.loop.create_task()
+
+        while True:
+            res = self.loop.run_until_complete(self.fetch_and_handle())
+            if not res:
+                break
