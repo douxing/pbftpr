@@ -102,7 +102,7 @@ class Node():
         if __debug__:
             print('node send_new_key')
 
-        new_key = NewKey.from_principals(
+        new_key = NewKey.from_principal(
             self.type, self.index, self.next_reqid(),
             self.principal, self.replica_principals)
 

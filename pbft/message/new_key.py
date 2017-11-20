@@ -42,7 +42,7 @@ class NewKey(BaseMessage):
                                        self.signature)
 
     @classmethod
-    def from_principals(cls,
+    def from_principal(cls,
                         node_type:int, index:int, reqid:Reqid,
                         principal, replica_principals):
 
