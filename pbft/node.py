@@ -146,19 +146,25 @@ class Node():
     def notify(self, task:Task):
         self.loop.create_task(self.task_queue.put(task))
 
-    def sendto(self, data:bytes, addr):
+    def sendto(self, data:bytes, dest):
         if isinstance(data, BaseMessage):
             data = data.frame
 
-        if addr == 'ALL_REPLICAS':
+        if dest == 'ALL_REPLICAS':
             for p in self.replica_principals:
-                self.sendto(data, (p.ip, p.port))
-        elif addr == 'ALL_CLIENTS':
+                self.sendto(data, p)
+        elif dest == 'ALL_CLIENTS':
             for p in self.client_principals:
-                self.sendto(data, (p.ip, p.port))
+                self.sendto(data, p)
         else:
             # unicast to addr
-            self.transport.sendto(data, addr)
+            if type(dest) is type(self.principal):
+                if dest is self.principal:
+                    return # don't send to myself
+
+                dest = dest.addr
+
+            self.transport.sendto(data, dest)
 
     async def handle(self, task:Task):
         """Handle all kinds of tasks

@@ -46,3 +46,6 @@ class Principal():
     def gen_inkey(self):
         self.inkey = secrets.token_bytes(self.hmac_nounce_length)
         return self.inkey
+
+    def gen_auth(self, inout:bool):
+        pass
