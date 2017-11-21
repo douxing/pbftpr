@@ -43,35 +43,51 @@ class Replica(Node):
     def is_valid(self):
         return super().is_valid
 
-    def recv_new_key(self, new_key, pp):
-        """
-        
-        :pp peer_principal
-        """
-        try:
-            assert new_key.index == pp.index
+    def recv_new_key(self, new_key, peer_principal):
+        assert new_key.index == peer_principal.index
+        pp = peer_principal
 
-            # firstly, verify signature
-            if not pp.verify(new_key.contents, new_key.signature):
-                raise ValueError('invalid signature')
+        # firstly, verify signature
+        if not new_key.verify(pp):
+            print('new_key verification failure: {}'.format(
+                pp.index
+            ))
+            return
 
-            # this comes fist, 'cause whenever decrypt failed,
-            # decrypt will raise error, thus break the assignment
-            outkey = self.principal.decrypt(new_key.hmac_keys[self.index])
+        # secondly, extract outkey
+        outkey = self.principal.decrypt(new_key.hmac_keys[self.index])
+        if not outkey:
+            print('new_key outkey failure: {}'.format(
+                pp.index
+            ))
+            return
 
-            if pp.outkey_reqid < new_key.reqid:
-                pp.outkey = outkey
-                pp.outkey_reqid = new_key.reqid
-            else:
-                raise ValueError('invalid reqid(timestamp)')
+        # thirdly, check timestamp(reqid)
+        if new_key.reqid <= pp.outkey_reqid:
+            print('new_key timestamp failure: {}'.format(
+                pp.index
+            ))
+            return
 
-            print_new_key(new_key, pp)
-        except:
-            if __debug__:
-                traceback.print_exc()
-            else:
-                pass # TODO: log
-            
+        # finally, update peer_principal
+        pp.outkey = outkey
+        pp.outkey_reqid = new_key.reqid
+
+        print_new_key(new_key, pp)
+
+    def recv_request(self, request, peer_principal):
+        assert request.index == peer_principal.index
+        pp = peer_principal
+
+        # firstly, verify signature
+        if not request.verify(pp):
+            print('request verification faillure: {}'.format(
+                pp.index
+            ))
+            return
+
+        print('------------------requst: {}'.format(request))
+
     async def handle(self, task:Task) -> bool:
         print_task(task)
 
@@ -99,7 +115,7 @@ class Replica(Node):
         assert res # receive CONN_MADE
         self.send_new_key()
 
-        
+
 
         while True:
             res = self.loop.run_until_complete(self.fetch_and_handle())

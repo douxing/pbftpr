@@ -1,6 +1,8 @@
 from enum import IntEnum
 import re
 
+from rlp.sedes import CountableList, raw
+
 from .types import MessageTag
 
 class BaseMessage():
@@ -15,12 +17,17 @@ class BaseMessage():
 
     infix = b'\x60' # multicoded code for rlp
 
+    authenticators_sedes = CountableList(raw)
+
     def __init__(self):
         """Initialization, BaseMessage shall NOT on wire
 
         should ONLY be called directly when parsing a frame
         """
         pass
+
+    def verify(self):
+        raise NotImplementedError
 
     @property
     def tag(self):

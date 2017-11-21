@@ -46,7 +46,7 @@ class Node():
         self.auth_timer = None
         self.auth_interval = auth_interval / 1000.0 # in seconds
 
-        super().__init__(*args, **kwargs)
+        super().__init__()
 
     @property
     def quorum(self):
@@ -83,28 +83,29 @@ class Node():
 
             return principal
         except IndexError:
-            if __debug__:
-                traceback.print_exc()
-            else:
-                pass # TODO: log
-        except BaseException:
-            if __debug__:
-                traceback.print_exc()
-            else:
-                pass # TODO: log
+            traceback.print_exc()
+        except:
+            traceback.print_exc()
 
         return None
 
     def auth_handler(self, sleep_task = None):
         self.loop.call_soon(self.send_new_key)
 
+    def gen_authenticators(self, hash_bytes):
+        authenticators = []
+        for p in self.replica_principals:
+            if p is self.principal:
+                authenticators.append(b'')
+            else:
+                authenticators.append(p.gen_hmac('out', hash_bytes))
+        return authenticators
+
     def send_new_key(self):
         if __debug__:
             print('node send_new_key')
 
-        new_key = NewKey.from_principal(
-            self.type, self.index, self.next_reqid(),
-            self.principal, self.replica_principals)
+        new_key = NewKey.from_node(self)
 
         self.sendto(new_key, 'ALL_REPLICAS')
         self.last_new_key = new_key

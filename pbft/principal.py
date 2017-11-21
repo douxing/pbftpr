@@ -1,4 +1,6 @@
 import secrets
+import hmac
+import traceback
 
 import rsa
 
@@ -32,20 +34,54 @@ class Principal():
         return (self.ip, self.port)
 
     def sign(self, message:bytes) -> bytes:
-        return rsa.sign(message, self.private_key, self.hash_method)
+        try:
+            return rsa.sign(message, self.private_key, self.hash_method)
+        except:
+            traceback.print_exc()
+
+        return None
 
     def verify(self, message:bytes, signature) -> bool:
-        return rsa.verify(message, signature, self.public_key)
+        try:
+            rsa.verify(message, signature, self.public_key)
+            return True
+        except:
+            traceback.print_exc()
+
+        return False
+            
 
     def encrypt(self, message:bytes) -> bytes:
-        return rsa.encrypt(message, self.public_key)
+        try:
+            return rsa.encrypt(message, self.public_key)
+        except:
+            traceback.print_exc()
+
+        return None
 
     def decrypt(self, message:bytes) -> bytes:
-        return rsa.decrypt(message, self.private_key)
+        try:
+            return rsa.decrypt(message, self.private_key)
+        except:
+            traceback.print_exc()
+
+        return None
 
     def gen_inkey(self):
         self.inkey = secrets.token_bytes(self.hmac_nounce_length)
         return self.inkey
 
-    def gen_auth(self, inout:bool):
-        pass
+    def gen_hmac(self, inout, source):
+        """Generate hmac for the input
+
+        nonce is NOT used, I believe that hmac-sha256 is secure enough
+        """
+        assert inout == 'in' or inout == 'out'
+
+        if inout == 'in':
+            key = self.inkey
+        elif inout == 'out':
+            key = self.outkey
+
+        return hmac.new(key, source, digestmod='SHA-256').digest()
+        

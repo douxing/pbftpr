@@ -2,6 +2,7 @@ import binascii
 import math
 import os
 import sys
+import traceback
 
 import click
 import rsa
@@ -64,7 +65,7 @@ def gen(keysize, n, c, force, outfolder):
 
             with open(pubkey_fname, 'w') as f:
                 f.write(pubkey.save_pkcs1().decode())
-            
+
             with open('{}_{}.toml'.format(name, i), 'w') as f:
                 d = {
                     'title': '{}_{}'.format(name, i),
@@ -83,7 +84,7 @@ def gen(keysize, n, c, force, outfolder):
                         d['node']['{}_interval'.format(n)] = gintervals[n]
 
                 toml.dump(d, f)
-            
+
         configs = dict()
         configs['title'] = '{}'.format(name)
         configs['nodes_count'] = count
@@ -100,110 +101,113 @@ def gen(keysize, n, c, force, outfolder):
 
         with open('{}_configs.toml'.format(name), 'w') as f:
             toml.dump(configs, f)
-    
+
     os.chdir(_owd)
     print('''Successfully generated!
 Go to '{}' and tune parameters in public config files
 according to your needs!'''.format(outfolder))
 
+def parse_args(replica_count, fault_count, client_count,
+               replica_configs, client_configs, node_config):
+    """Parse arguments for replica and client
+    """
+
+    node = toml.load(node_config)['node']
+
+    with open(node['private_key_file']) as f:
+        node['private_key'] = rsa.PrivateKey.load_pkcs1(f.read())
+    with open(node['public_key_file']) as f:
+        node['public_key'] = rsa.PublicKey.load_pkcs1(f.read())
+
+    replicas = toml.load(replica_configs)['nodes']
+
+    n = replica_count or len(replicas)
+    if n > len(replicas):
+        raise ValueError
+
+    f = fault_count or (n - 1)// 3
+
+    replica_principals = []
+    for i in range(n):
+        r = replicas[i]
+        with open(r['public_key_file']) as f:
+            p = Principal(i, public_key = rsa.PublicKey.load_pkcs1(f.read()),
+                          ip = r['ip'], port = r['port'])
+            replica_principals.append(p)
+
+    clients = toml.load(client_configs)['nodes']
+
+    client_principals = []
+    for i, c in enumerate(clients):
+        with open(c['public_key_file']) as f:
+            p = Principal(i, public_key = rsa.PublicKey.load_pkcs1(f.read()),
+                          ip = c['ip'], port = c['port'])
+            client_principals.append(p)
+
+    node['n'] = n
+    node['f'] = f
+    node['replica_principals'] = replica_principals
+    node['client_principals'] = client_principals
+
+    return node
+
+client_keys = {
+    'n','f', 'private_key', 'public_key',
+    'auth_interval',
+    'replica_principals', 'client_principals',
+}
+
 @cli_main.command()
 @click.option('--fault_count', '-f')
 @click.option('--replica_count', '-n')
 @click.option('--client_count', '-c')
-@click.argument('replica_configs', type=click.File(mode='r'))
-@click.argument('client_configs', type=click.File(mode='r'))
-@click.argument('node_config', type=click.File(mode='r'))
-def run(replica_count, fault_count, client_count,
-        replica_configs, client_configs, node_config):
+@click.option('--replica_configs', '-R',
+                type=click.File(mode='r'),
+                default='replica_configs.toml')
+@click.option('--client_configs', 'C',
+                type=click.File(mode='r'),
+                default='client_configs.toml')
+@click.argument('node_config',
+                type=click.File(mode='r'))
+def client(**kwargs):
     try:
-        _rcs = toml.load(replica_configs)
-        _ccs = toml.load(client_configs)
-        _nc  = toml.load(node_config)
-    except toml.TomlDecodeError as tde:
-        print('toml decode error: {}'.format(tde))
-        sys.exit(-1)
-
-    if 'node' not in _nc or not isinstance(_nc['node'], dict):
-        print("node_config 'node' attribute not exist!")
-        sys.exit(-1)
-
-    if 'type' not in _nc['node']:
-        print("node_config 'node' should have 'type'!")
-        sys.exit(-1)
-    else:
-        node_type = _nc['node']['type']
-        
-    if 'private_key_file' not in _nc['node']:
-        print("node_config 'node' should have 'private_key_file'!")
-        sys.exit(-1)
-    else:
-        with open(_nc['node']['private_key_file']) as f:
-            private_key = rsa.PrivateKey.load_pkcs1(f.read())
-
-    if 'public_key_file' not in _nc['node']:
-        print("node_config 'node' should have 'public_key_file'!")
-        sys.exit(-1)
-    else:
-        with open(_nc['node']['public_key_file']) as f:
-            public_key =  rsa.PublicKey.load_pkcs1(f.read())
-
-    if 'auth_interval' not in _nc['node']:
-        print("Using default auth_interval({})".format(gintervals['auth']))
-        auth_interval = gintervals['auth']
-    else:
-        auth_interval = _nc['node']['auth_interval']
-
-    # genrate principals for replicas and clients
-    replica_principals = []
-    for index, r in enumerate(_rcs['nodes']):
-        with open(r['public_key_file']) as f:
-            p = Principal(index,
-                          public_key = rsa.PublicKey.load_pkcs1(f.read()),
-                          ip = r['ip'], port = r['port'])
-            replica_principals.append(p)
-        
-    client_principals = []
-    for index, c in enumerate(_ccs['nodes']):
-        with open(r['public_key_file']) as f:        
-            p = Principal(index,
-                          public_key = rsa.PublicKey.load_pkcs1(f.read()),
-                          ip = r['ip'], port = r['port'])
-            client_principals.append(p)
-
-    n = replica_count or len(replica_principals)
-    f = fault_count or n // 3
-
-    kwargs = dict({
-        'n': n,
-        'f': f,
-        'private_key': private_key,
-        'public_key': public_key,
-        'auth_interval':  auth_interval,
-        'replica_principals': replica_principals,
-        'client_principals': client_principals,
-    })
-
-    if node_type == 'replica':
-        for n in ['status', 'view_change', 'recovery', 'idle']:
-            _name = '{}_interval'.format(n)
-            if _name not in _nc['node']:
-                print("Using default {}({})".format(_name, gintervals[name]))
-                kwargs[_name] = gintervals[_name]
-            else:
-                kwargs[_name] = _nc['node'][_name]
-
-        node = Replica(**kwargs)
-    elif node_type == 'client':
-        node = Client(**kwargs)
-    else:
-        print("unknown 'node' 'type': {} {}!".format(node_type, type(node_type)))
-        sys.exit(-1)
-
-    try:
+        node_config = parse_args(**kwargs)
+        client_config = { k: node_config[k] for k in client_keys }
+        node = Client(**client_config)
         node.run()
     except KeyboardInterrupt:
         print('Interrupted by user')
-    except SystemExit as exc:
-        print('Interrupted by system exit: {}'.format(exc))
+    except:
+        traceback.print_exc()
     finally:
-        print('process exited!')
+        print('client {} exited!'.format(node_config['index']))
+
+    
+replica_keys = client_keys.union({
+    '{}_interval'.format(name) for name in gintervals
+})
+
+@cli_main.command()
+@click.option('--fault_count', '-f')
+@click.option('--replica_count', '-n')
+@click.option('--client_count', '-c')
+@click.option('--replica_configs', '-R',
+                type=click.File(mode='r'),
+                default='replica_configs.toml')
+@click.option('--client_configs', '-C',
+                type=click.File(mode='r'),
+                default='client_configs.toml')
+@click.argument('node_config',
+                type=click.File(mode='r'))
+def replica(**kwargs):
+    try:
+        node_config = parse_args(**kwargs)
+        replica_config = { k: node_config[k] for k in replica_keys }
+        node = Replica(**replica_config)
+        node.run()
+    except KeyboardInterrupt:
+        print('Interrupted by user')
+    except:
+        traceback.print_exc()
+    finally:
+        print('replica {} exited!'.format(node_config['index']))
