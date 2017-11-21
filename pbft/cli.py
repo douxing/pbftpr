@@ -164,7 +164,7 @@ client_keys = {
 @click.option('--replica_configs', '-R',
                 type=click.File(mode='r'),
                 default='replica_configs.toml')
-@click.option('--client_configs', 'C',
+@click.option('--client_configs', '-C',
                 type=click.File(mode='r'),
                 default='client_configs.toml')
 @click.argument('node_config',
