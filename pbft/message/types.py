@@ -21,12 +21,13 @@ class MessageTag(IntEnum):
     QueryStable = 16
     ReplyStable = 17
 
-    @classmethod
-    def snake_name(cls, tag):
-        return cls.snake_names[tag]
+    @property
+    def snake_name(self):
+        return self.snake_names[self]
 
-    def const_name(cls, tag):
-        return cls.const_names[tag]
+    @property
+    def const_name(self, tag):
+        return self.const_names[self]
 
 def camel_to_snake(name):
     return re.sub('(.)([A-Z])', r'\1_\2', name).lower()

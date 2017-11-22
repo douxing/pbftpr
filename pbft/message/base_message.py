@@ -48,6 +48,9 @@ class BaseMessage():
         """
         return self.frame_head + self.payloads
 
+    def __len__(self):
+        return len(self.frame)
+
     @classmethod
     def parse_frame(cls, frame:bytes):
         """Convert a bytes to message

@@ -34,6 +34,8 @@ class NewKey(BaseMessage):
         self.auth = None
         self.payloads = None
 
+        self.from_addr = None
+
         super().__init__()
 
     def verify(self, peer_principal):
@@ -77,7 +79,7 @@ class NewKey(BaseMessage):
         return message
 
     @classmethod
-    def from_payloads(cls, payloads):
+    def from_payloads(cls, payloads, addr):
         try:
             [contents, auth] = rlp.decode(payloads, cls.payloads_sedes)
 
@@ -88,6 +90,7 @@ class NewKey(BaseMessage):
             message.contents = contents
             message.auth = auth
             message.payloads = payloads
+            message.from_addr = addr
 
             return message
         except rlp.DecodingError as exc:

@@ -16,9 +16,7 @@ class DatagramServer(asyncio.DatagramProtocol):
 
         There must something happened, stop the loop.
         """
-        self.transport = None
-        asyncio.ensure_future(
-            self.node.notify(Task(TaskType.CONN_LOST, exc)))
+        self.node.notify(Task(TaskType.CONN_LOST, exc))
         
     def datagram_received(self, data, addr):
         """Messages are node kind specific
@@ -27,8 +25,7 @@ class DatagramServer(asyncio.DatagramProtocol):
 
     def error_received(self, exc):
         # print('Node transport error: {}'.format(exc))
-        asyncio.ensure_future(
-            self.node.notify(Task(TaskType.PEER_ERR, exc)))
+        self.node.notify(Task(TaskType.PEER_ERR, exc))
 
     def sendto(data:bytes, addr):
         self.transport.sendto(data, addr)

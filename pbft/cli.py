@@ -12,6 +12,7 @@ from .node import Node
 from .replica import Replica
 from .principal import Principal
 from .client import Client
+from .message import Request
 
 gintervals = dict({
     'auth': 30 * 60 * 1000,
@@ -173,8 +174,14 @@ def client(**kwargs):
     try:
         node_config = parse_args(**kwargs)
         client_config = { k: node_config[k] for k in client_keys }
-        node = Client(**client_config)
-        node.run()
+        client = Client(**client_config)
+
+        reqs = [Request.from_node(client, False, False,
+                                  False, 0, b'Hello, world!'),
+                Request.from_node(client, False, False,
+                                  False, 0, b'Hello, world again!')]
+
+        client.process_requests(reqs)
     except KeyboardInterrupt:
         print('Interrupted by user')
     except:
@@ -200,14 +207,7 @@ replica_keys = client_keys.union({
 @click.argument('node_config',
                 type=click.File(mode='r'))
 def replica(**kwargs):
-    try:
         node_config = parse_args(**kwargs)
         replica_config = { k: node_config[k] for k in replica_keys }
-        node = Replica(**replica_config)
-        node.run()
-    except KeyboardInterrupt:
-        print('Interrupted by user')
-    except:
-        traceback.print_exc()
-    finally:
-        print('replica {} exited!'.format(node_config['index']))
+        replica = Replica(**replica_config)
+        replica.run()

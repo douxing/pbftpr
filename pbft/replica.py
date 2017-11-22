@@ -86,38 +86,61 @@ class Replica(Node):
             ))
             return
 
-        print('------------------requst: {}'.format(request))
+        print('request received: {}'.format(request))
 
-    async def handle(self, task:Task) -> bool:
+    def notify(self, task:Task):
+        self.loop.create_task(self.task_queue.put(task))
+
+    def recv_message(self, message):
+        try:
+            receiver = getattr(self, 'recv_{}'.format(message.tag.snake_name))
+
+            principal = self.find_principal(message, message.from_addr)
+            if not principal:
+                raise ValueError('no valid principal')
+
+            receiver(message, principal)
+        except:
+            traceback.print_exc() # TODO: log
+
+    async def handle(self, task:Task):
         print_task(task)
 
         if task.type == TaskType.CONN_MADE:
-            pass
+            pass # nothing to be done
         elif task.type == TaskType.CONN_LOST:
-            pass
+            raise IOError('connection lost')
         elif task.type == TaskType.PEER_MSG:
             data, addr = task.item
-            self.parse_frame(data, addr)
-        elif task.type == TaskType.PERR_ERR:
-            pass
-        elif task.type == TaskType.TIMER:
-            pass
+            message = self.parse_frame(data, addr)
+            if message is None:
+                print('invalid frame from: {}'.format(addr))                
+            self.recv_message(message)
+        elif task.type == TaskType.PEER_ERR:
+            pass # nothing to be done
         else:
-            pass
+            raise ValueError('unknown task: {}'.format(task))
 
-        return True # continue loop
+    async def fetch(self) -> Task:
+        return await self.task_queue.get()
+
+    async def fetch_and_handle(self):
+        task = await self.task_queue.get()
+        return await self.handle(task)
 
     def run(self):
-        # create datagram server
-        self.transport, self.protocol = self.loop.run_until_complete(self.listen)
-        res = self.loop.run_until_complete(self.fetch_and_handle())
+        # create datagram server and fetch CONN_MADE
+        self.transport, self.protocol = (
+            self.loop.run_until_complete(self.listen))
+        task = self.loop.run_until_complete(self.fetch())
+        assert task.type == TaskType.CONN_MADE
 
-        assert res # receive CONN_MADE
-        self.send_new_key()
+        # start auth_timer
+        self.auth_timer_handler()
 
-
-
-        while True:
-            res = self.loop.run_until_complete(self.fetch_and_handle())
-            if not res:
-                break
+        try:
+            while True:
+                self.loop.run_until_complete(self.fetch_and_handle())
+        except:
+            traceback.print_exc()
+    

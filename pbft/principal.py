@@ -83,5 +83,5 @@ class Principal():
         elif inout == 'out':
             key = self.outkey
 
-        return hmac.new(key, source, digestmod='SHA-256').digest()
+        return hmac.new(key, source, digestmod='SHA256').digest()
         

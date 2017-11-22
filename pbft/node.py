@@ -7,7 +7,7 @@ import traceback
 from .types import Reqid, Seqno, View, TaskType, Task
 from .datagram_server import DatagramServer
 from .principal import Principal
-from .message import MessageTag, BaseMessage, NewKey
+from .message import MessageTag, BaseMessage, NewKey, Request
 from .utils import utcnow_reqid, print_new_key
 
 class Node():
@@ -25,8 +25,8 @@ class Node():
         self.n = n
         self.f = f
 
-        self.replica_principals = [p for p in replica_principals]
-        self.client_principals = [p for p in client_principals]
+        self.replica_principals = replica_principals
+        self.client_principals = client_principals
 
         self.view = View(0)
 
@@ -46,15 +46,16 @@ class Node():
         self.auth_timer = None
         self.auth_interval = auth_interval / 1000.0 # in seconds
 
-        super().__init__()
+        super().__init__(*args, **kwargs)
 
     @property
     def quorum(self):
         return self.f + (self.n - self.f) // 2 + 1
 
     @property
-    def primary(self) -> int:
-        return self.view % self.n
+    def primary(self) -> Principal:
+        index = self.view % self.n 
+        return self.replica_principals[index]
 
     @property
     def is_valid(self):
@@ -89,9 +90,6 @@ class Node():
 
         return None
 
-    def auth_handler(self, sleep_task = None):
-        self.loop.call_soon(self.send_new_key)
-
     def gen_authenticators(self, hash_bytes):
         authenticators = []
         for p in self.replica_principals:
@@ -101,48 +99,36 @@ class Node():
                 authenticators.append(p.gen_hmac('out', hash_bytes))
         return authenticators
 
-    def send_new_key(self):
-        if __debug__:
-            print('node send_new_key')
-
-        new_key = NewKey.from_node(self)
-
-        self.sendto(new_key, 'ALL_REPLICAS')
-        self.last_new_key = new_key
+    def auth_timer_handler(self, _task = None):
+        self.send_new_key()
 
         # reset self.auth_timer
         if self.auth_timer and not self.auth_timer.done():
+            self.auth_timer.remove_done_callback(self.auth_timer_handler)
             self.auth_timer.cancel()
 
         self.auth_timer = self.loop.create_task(
             asyncio.sleep(self.auth_interval, loop = self.loop))
 
-        self.auth_timer.add_done_callback(self.auth_handler)
+        self.auth_timer.add_done_callback(self.auth_timer_handler)
+        
+    def send_new_key(self):
+        if __debug__:
+            print('node send_new_key')
+
+        new_key = NewKey.from_node(self)
+        self.sendto(new_key, 'ALL_REPLICAS')
+        self.last_new_key = new_key
 
     def parse_frame(self, data, addr):
         try:
             tag, payloads = BaseMessage.parse_frame(data)
+            print('-----------------------------------tag: {}'.format(tag))
             cls = getattr(sys.modules[__name__], tag.name)
-            message = cls.from_payloads(payloads)
-
-            receiver = getattr(self,
-                               'recv_{}'.format(MessageTag.snake_name(tag)))
-
-            principal = self.find_principal(message, addr)
-            if not principal:
-                raise ValueError('no valid principal found')
-
-            receiver(message, principal)
-        except ValueError:
-            if __debug__:
-                traceback.print_exc()
-            else:
-                pass # TODO: log
+            message = cls.from_payloads(payloads, addr)
+            return message
         except:
-            if __debug__:
-                traceback.print_exc()
-            else:
-                pass # TODO: log
+            traceback.print_exc() # TODO: log
 
     def notify(self, task:Task):
         self.loop.create_task(self.task_queue.put(task))
@@ -159,22 +145,10 @@ class Node():
                 self.sendto(data, p)
         else:
             # unicast to addr
-            if type(dest) is type(self.principal):
+            if type(dest) is Principal:
                 if dest is self.principal:
                     return # don't send to myself
 
                 dest = dest.addr
 
             self.transport.sendto(data, dest)
-
-    async def handle(self, task:Task):
-        """Handle all kinds of tasks
-        """
-        raise NotImplementedError
-
-    async def fetch_and_handle(self):
-        task = await self.task_queue.get()
-        return await self.handle(task)
-
-    def run(self):
-        raise NotImplementedError
