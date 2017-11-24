@@ -49,7 +49,11 @@ class BaseMessage():
         return self.frame_head + self.payloads
 
     def __len__(self):
-        return len(self.frame)
+        """Total length of this frame
+        """
+        # dx: I think this is more efficient than:
+        # return len(self.frame)
+        return len(self.frame_head) + len(self.payloads)
 
     @classmethod
     def parse_frame(cls, frame:bytes):

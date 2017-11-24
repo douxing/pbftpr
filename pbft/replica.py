@@ -31,6 +31,8 @@ class Replica(Node):
         self.recovery_interval = recovery_interval
         self.idle_interval = idle_interval
 
+        self.replies = 
+
         super().__init__(replica_principals = replica_principals,
                          *args, **kwargs)
 
@@ -42,6 +44,13 @@ class Replica(Node):
     @property
     def is_valid(self):
         return super().is_valid
+
+    @property
+    def has_new_view():
+        """this replica has complete new-view
+        information for the current view
+        """
+        return v == 0 or True # TODO: more conditions
 
     def recv_new_key(self, new_key, peer_principal):
         assert new_key.index == peer_principal.index
@@ -79,14 +88,18 @@ class Replica(Node):
         assert request.index == peer_principal.index
         pp = peer_principal
 
-        # firstly, verify signature
-        if not request.verify(pp):
-            print('request verification faillure: {}'.format(
-                pp.index
-            ))
-            return
+        # firstly, verify auth
+        if self.has_new_view and request.verify(self, pp):
+            if (request.node_type is Node.replica_type
+                or True): # TODO: replica request
+                # TODO: readonly request
 
-        print('request received: {}'.format(request))
+                
+        else:
+            pass # TODO: handle big data
+
+
+        
 
     def notify(self, task:Task):
         self.loop.create_task(self.task_queue.put(task))
@@ -95,7 +108,7 @@ class Replica(Node):
         try:
             receiver = getattr(self, 'recv_{}'.format(message.tag.snake_name))
 
-            principal = self.find_principal(message, message.from_addr)
+            principal = self.find_principal(message)
             if not principal:
                 raise ValueError('no valid principal')
 

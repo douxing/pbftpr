@@ -90,11 +90,13 @@ class Client(Node):
             try:
                 while True:
                     message = self.recv_message()
-                    if type(message) is Reply:
-                        print('reply: {}: '.format(message))
-                        break
-                    else:
+                    if type(message) is not Reply:
                         print('message: {}: '.format(message))                    
+                        continue
+
+                    print('reply: {}: '.format(message))                    
+                    
+
             except KeyboardInterrupt:
                 raise
             except:

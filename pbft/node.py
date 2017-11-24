@@ -70,7 +70,7 @@ class Node():
         self.reqid += 1
         return self.reqid
 
-    def find_principal(self, message, addr):
+    def find_principal(self, message):
         try:
             if message.node_type == self.replica_type:
                 principal = self.replica_principals[message.index]
@@ -80,7 +80,7 @@ class Node():
             assert principal.index == message.index
 
             # TODO: restrict addr in ip range?
-            assert principal.addr == addr
+            # assert principal.addr == message.from_addr
 
             return principal
         except IndexError:
