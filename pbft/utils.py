@@ -8,7 +8,7 @@ def utcnow_ts():
     return datetime.utcnow().timestamp()
 
 def utcnow_reqid():
-    return Reqid(math.floor(utcnow_ts() * 10**9))
+    return Reqid(math.floor(utcnow_ts() * 10**3))
 
 def print_new_key(new_key, pp):
     if __debug__:

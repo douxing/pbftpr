@@ -55,6 +55,9 @@ class BaseMessage():
         # return len(self.frame)
         return len(self.frame_head) + len(self.payloads)
 
+    def sender(self, node):
+        raise NotImplementedError
+
     @classmethod
     def parse_frame(cls, frame:bytes):
         """Convert a bytes to message

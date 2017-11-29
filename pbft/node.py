@@ -7,7 +7,7 @@ import traceback
 from .types import Reqid, Seqno, View, TaskType, Task
 from .datagram_server import DatagramServer
 from .principal import Principal
-from .message import MessageTag, BaseMessage, NewKey, Request
+from .message import MessageTag, BaseMessage, NewKey, Request, Reply
 from .utils import utcnow_reqid, print_new_key
 
 class Node():
@@ -70,7 +70,7 @@ class Node():
         self.reqid += 1
         return self.reqid
 
-    def find_principal(self, message):
+    def find_sender(self, message):
         try:
             if message.node_type == self.replica_type:
                 principal = self.replica_principals[message.index]
@@ -123,7 +123,6 @@ class Node():
     def parse_frame(self, data, addr):
         try:
             tag, payloads = BaseMessage.parse_frame(data)
-            print('-----------------------------------tag: {}'.format(tag))
             cls = getattr(sys.modules[__name__], tag.name)
             message = cls.from_payloads(payloads, addr)
             return message

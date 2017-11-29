@@ -1,4 +1,5 @@
 import binascii
+import collections
 import datetime
 import traceback
 
@@ -31,7 +32,12 @@ class Replica(Node):
         self.recovery_interval = recovery_interval
         self.idle_interval = idle_interval
 
-        self.replies = 
+        self.request_queue = collections.OrderedDict()
+        self.readonly_request_queue = collections.OrderedDict()
+
+        self.replies = dict() # principal -> reply
+
+        self.limbo = False
 
         super().__init__(replica_principals = replica_principals,
                          *args, **kwargs)
@@ -51,6 +57,16 @@ class Replica(Node):
         information for the current view
         """
         return v == 0 or True # TODO: more conditions
+
+    def execute_readonly(self, request):
+        return True
+
+    def execute_prepared(self):
+        return True
+
+    def execute_commited(self):
+        return True
+
 
     def recv_new_key(self, new_key, peer_principal):
         assert new_key.index == peer_principal.index
@@ -89,17 +105,58 @@ class Replica(Node):
         pp = peer_principal
 
         # firstly, verify auth
-        if self.has_new_view and request.verify(self, pp):
-            if (request.node_type is Node.replica_type
-                or True): # TODO: replica request
-                # TODO: readonly request
+        if not self.has_new_view or not request.verify(self, pp):
+            return
 
-                
-        else:
-            pass # TODO: handle big data
+        if (request.node_type is Node.client_type):
+            if request.readonly:
+                if execute_readonly(request):
+                return
+
+                principal = self.client_principals[request.index]
+                self.readonly_request_queue[principal] = request
+                self.readonly_request_queue.move_to_end(principal)
+                return
+
+            # this is a read-write request from client
+            last_reqid = (self.replies[pp].reqid if
+                      pp in self.replies else -1)
+            if last_reqid < request.reqid:
+                old_request = self.request_queue.get(pp)
+                if (old_request:
+                    and request.reqid <= old_request.reqid
+                    and self.view <= old_request.view):
+                    # there is no need to continue
+                    return
+
+                request.view = self.view
+                self.request_queue[pp] = request
+                self.request_queue.move_to_end(pp)
+
+                if self.principal is self.primary:
+                    self.send_pre_prepare() # TODO
+                else if not self.limbo:
+                    send(request, self.primary)
+                    # TODO: view change timer
+
+            elif last_reqid == request.reqid:
+                reply = self.replies[pp]
+                reply.view = self.view
+                reply.node_index = self.index
+
+                # TODO: send reply
+
+                # TODO: start view change timer if ...
+
+        # TODO: replica request
+
+    def send_pre_prepare(self):
+        pass
+
+    def recv_pre_prepare(self, pre_prepare):
+        pass
 
 
-        
 
     def notify(self, task:Task):
         self.loop.create_task(self.task_queue.put(task))
@@ -108,7 +165,7 @@ class Replica(Node):
         try:
             receiver = getattr(self, 'recv_{}'.format(message.tag.snake_name))
 
-            principal = self.find_principal(message)
+            principal = self.find_sender(message)
             if not principal:
                 raise ValueError('no valid principal')
 
@@ -126,9 +183,11 @@ class Replica(Node):
         elif task.type == TaskType.PEER_MSG:
             data, addr = task.item
             message = self.parse_frame(data, addr)
-            if message is None:
-                print('invalid frame from: {}'.format(addr))                
-            self.recv_message(message)
+            if message:
+                self.recv_message(message)
+            else
+                print('invalid frame from: {}'.format(addr))
+
         elif task.type == TaskType.PEER_ERR:
             pass # nothing to be done
         else:
@@ -156,4 +215,3 @@ class Replica(Node):
                 self.loop.run_until_complete(self.fetch_and_handle())
         except:
             traceback.print_exc()
-    
