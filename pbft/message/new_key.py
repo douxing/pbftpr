@@ -4,15 +4,15 @@ import secrets
 import rlp
 from rlp.sedes import List, CountableList, big_endian_int, raw
 
-from ..types import Reqid
+from ..types import Reqid, NodeType
 from .base_message import BaseMessage
 
 class NewKey(BaseMessage):
 
     contents_sedes = List([
-        big_endian_int, # sender type
         big_endian_int, # sender index
         big_endian_int, # timestamp
+        big_endian_int, # extra with sender type
         CountableList(raw), # [k(j, i)]
     ])
 
@@ -22,12 +22,13 @@ class NewKey(BaseMessage):
     ])
 
     def __init__(self,
-                 node_type:int, index:int, reqid:Reqid, hmac_keys):
+                 sender:int, reqid:Reqid,
+                 extra, hmac_keys):
         """Session key
         """
-        self.node_type = node_type
-        self.index = index
+        self.sender = sender
         self.reqid = reqid
+        self.extra = extra
         self.hmac_keys = hmac_keys
 
         self.contents = None
@@ -42,16 +43,16 @@ class NewKey(BaseMessage):
         return peer_principal.verify(self.contents_digest, self.auth)
 
     def __str__(self):
-        return '{}:{}\n{}\n{}\n{}'.format(self.node_type, self.index,
-                                          self.reqid, self.hmac_keys,
+        return '{}:{}\n{}\n{}\n{}'.format(self.sender, self.reqid,
+                                          self.extra, self.hmac_keys,
                                           self.auth)
 
     @property
     def contents_digest(self):
         d = hashlib.sha256()
-        d.update('{}'.format(self.node_type).encode())
-        d.update('{}'.format(self.index).encode())
+        d.update('{}'.format(self.sender).encode())
         d.update('{}'.format(self.reqid).encode())
+        d.update('{}'.format(self.extra).encode())
         for k in self.hmac_keys:
             d.update(k)
         return d.digest()
@@ -68,9 +69,13 @@ class NewKey(BaseMessage):
 
             hmac_keys.append(p.encrypt(nonce))
 
-        message = cls(node.type, node.index, node.next_reqid(), hmac_keys)
-        message.contents = rlp.encode([message.node_type, message.index,
-                                       message.reqid, message.hmac_keys],
+        extra = 0
+        if node.type is NodeType.Client:
+            extra |= 1 << 4
+
+        message = cls(node.sender, node.next_reqid(), extra, hmac_keys)
+        message.contents = rlp.encode([message.sender, message.reqid,
+                                       message.extra, message.hmac_keys],
                                       cls.contents_sedes)
 
         message.auth = node.principal.sign(message.contents_digest)
@@ -83,10 +88,10 @@ class NewKey(BaseMessage):
         try:
             [contents, auth] = rlp.decode(payloads, cls.payloads_sedes)
 
-            [node_type, index, reqid, hmac_keys] = (
+            [sender, reqid, extra, hmac_keys] = (
                 rlp.decode(contents, cls.contents_sedes))
 
-            message = cls(node_type, index, reqid, hmac_keys)
+            message = cls(sender, reqid, extra, hmac_keys)
             message.contents = contents
             message.auth = auth
             message.payloads = payloads

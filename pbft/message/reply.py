@@ -6,11 +6,10 @@ from rlp.sedes import List, CountableList, big_endian_int, raw
 
 from . import BaseMessage
 
-from ..types import View, Reqid
+from ..types import View, Reqid, NodeType
 
 class Reply(BaseMessage):
     contents_sedes = List([
-        big_endian_int, # replier type
         big_endian_int, # replier index
         big_endian_int, # timestamp(reqid)
         big_endian_int, # extra
@@ -24,16 +23,14 @@ class Reply(BaseMessage):
         raw, # auth(hmac)
     ])
 
-    def __init__(self,
-                 node_type, node_index, reqid, extra,
+    def __init__(self, sender, reqid, extra,
                  view, reply:bytes):
         """
-        :reqid: reqid from the sender
-        :node_type:  always be replica
-        :node_index: id of replica sending this message
+        :sender index id of replica sending this message
+        :reqid reqid from the sender
+        :node_type  always be replica
         """
-        self.node_type = node_type
-        self.node_index = node_index
+        self.sender = sender
         self.reqid = reqid
         self.extra = extra
         self.view = view
@@ -50,8 +47,7 @@ class Reply(BaseMessage):
     @property
     def contents_digest(self):
         d = hashlib.sha256()
-        d.update('{}'.format(self.node_type).encode())
-        d.update('{}'.format(self.node_index).encode())
+        d.update('{}'.format(self.sender).encode())
         d.update('{}'.format(self.reqid).encode())
         d.update('{}'.format(self.extra).encode())
         d.update('{}'.format(self.view).encode())
@@ -60,9 +56,12 @@ class Reply(BaseMessage):
 
     @classmethod
     def from_node(cls, node, request, reply):
+
+        extra = 0
+        if node.type is NodeType.Client:
+            extra |= 1 << 4
         
-        message = cls(node.type, node.index, request.reqid,
-                      0, node.view, reply)
+        Message = cls(node.index, request.reqid, extra, node.view, reply)
 
         return message
 
@@ -71,10 +70,10 @@ class Reply(BaseMessage):
         try:
             [contents, auth] = rlp.decode(payloads, cls.payloads_sedes)
 
-            [node_type, node_index, reqid, extra, view,
-             reply_digest, reply] = rlp.decode(contents, cls.contents_sedes)
+            [sender, reqid, extra, view, reply_digest, reply] = (
+                rlp.decode(contents, cls.contents_sedes))
 
-            message = cls(node_type, node_index, reqid, extra, view, reply)
+            message = cls(sender, reqid, extra, view, reply)
             if message.reply_digest != reply_digest:
                 raise ValueError('digest error')
 

@@ -9,13 +9,10 @@ class BaseMessage():
 
     """Prefix for our message
 
-    :\x00 is the multibase tag for raw based
-    :\x01 is the version number in unsigned varint
     :\x55 is the multicodec tag for raw based
+    :\x01 is the version number in unsigned varint
     """
-    prefix = b'\x00\x01\x55'
-
-    infix = b'\x60' # multicoded code for rlp
+    prefix = b'\x55\x01'
 
     authenticators_sedes = CountableList(raw)
 
@@ -34,10 +31,16 @@ class BaseMessage():
         return MessageTag[type(self).__name__]
 
     @property
+    def sender_type:
+        if hasattr(self, 'extra'):
+            return NodeType((self.extra >> 4) & 1)
+        else:
+            return NodeType.Replica
+
+    @property
     def frame_head(self):
         return (self.prefix
-                + self.tag.to_bytes(1, byteorder='big')
-                + self.infix)
+                + self.tag.to_bytes(1, byteorder='big'))
 
     @property
     def frame(self):
@@ -55,9 +58,6 @@ class BaseMessage():
         # return len(self.frame)
         return len(self.frame_head) + len(self.payloads)
 
-    def sender(self, node):
-        raise NotImplementedError
-
     @classmethod
     def parse_frame(cls, frame:bytes):
         """Convert a bytes to message
@@ -67,11 +67,11 @@ class BaseMessage():
         
         :data should begin with prefix + MessageTag + infix
         """
-        if cls.prefix != frame[:3] or frame[4:5] != cls.infix:
+        if cls.prefix != frame[:2]
             raise ValueError('illegal frame head')
         
-        tag = MessageTag(frame[3])
-        payloads = frame[5:]
+        tag = MessageTag(frame[2])
+        payloads = frame[3:]
 
         if not min(MessageTag) < tag <= max(MessageTag):
             raise ValueError('illegal frame tag')

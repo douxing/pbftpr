@@ -8,18 +8,15 @@ from .types import Reqid, Seqno, View, TaskType, Task
 from .datagram_server import DatagramServer
 from .principal import Principal
 from .message import MessageTag, BaseMessage, NewKey, Request, Reply
+from .timer import Timer
 from .utils import utcnow_reqid, print_new_key
 
 class Node():
-
-    replica_type = 1
-    client_type  = 2
 
     def __init__(self,
                  n:int, f:int,
                  auth_interval:int, # in milli seconds
                  replica_principals = [], client_principals = [],
-                 loop = asyncio.get_event_loop(),
                  *args, **kwargs):
 
         self.n = n
@@ -29,8 +26,6 @@ class Node():
         self.client_principals = client_principals
 
         self.view = View(0)
-
-        self.loop = loop
 
         # use task queue to queue tasks
         self.task_queue = asyncio.Queue(loop=self.loop)
@@ -43,8 +38,8 @@ class Node():
             local_addr=(self.principal.ip, self.principal.port))
 
         self.last_new_key = None
-        self.auth_timer = None
-        self.auth_interval = auth_interval / 1000.0 # in seconds
+        self.auth_timer = Timer(auth_interval / 1000.0,
+                                self.auth_timer_handler)
 
         super().__init__(*args, **kwargs)
 
@@ -103,15 +98,8 @@ class Node():
         self.send_new_key()
 
         # reset self.auth_timer
-        if self.auth_timer and not self.auth_timer.done():
-            self.auth_timer.remove_done_callback(self.auth_timer_handler)
-            self.auth_timer.cancel()
+        self.auth_timer.restart()
 
-        self.auth_timer = self.loop.create_task(
-            asyncio.sleep(self.auth_interval, loop = self.loop))
-
-        self.auth_timer.add_done_callback(self.auth_timer_handler)
-        
     def send_new_key(self):
         if __debug__:
             print('node send_new_key')

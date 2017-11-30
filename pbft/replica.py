@@ -6,11 +6,15 @@ import traceback
 from .principal import Principal
 from .node import Node
 
-from .types import Reqid, Seqno, View, TaskType, Task
+from .types import Reqid, Seqno, View, NodeType, TaskType, Task,
+from .types import checkpoint_interval, checkpoint_max_out
+from .timer import Timer
 from .utils import print_new_key, print_task
 
 class Replica(Node):
-    type = Node.replica_type
+    type = NodeType.Replica
+
+    congestion_window = 1
 
     def __init__(self,
                  private_key, public_key,
@@ -27,17 +31,36 @@ class Replica(Node):
                 self.index = index
                 p.private_key = private_key
 
-        self.status_interval = status_interval
-        self.view_change_interval = view_change_interval
-        self.recovery_interval = recovery_interval
-        self.idle_interval = idle_interval
+        self.status_timer = Timer(status_interval / 1000.0,
+                                  self.status_handler)
+        self.view_change_timer = Timer(view_change_interval / 1000.0,
+                                       self.view_change_handler)
+        self.recovery_timer = Timer(recovery_interval / 1000.0,
+                                    self.recovery_handler)
+        self.idle_timer = Timer(recovery_interval / 1000.0,
+                                self.idle_handler)
 
-        self.request_queue = collections.OrderedDict()
-        self.readonly_request_queue = collections.OrderedDict()
+        # request digests -> requests
+        self.requests = dict()
+
+        # principal -> request
+        self.rw_requests = collections.OrderedDict()
+        self.ro_requests = collections.OrderedDict()
+
+        
 
         self.replies = dict() # principal -> reply
 
-        self.limbo = False
+        self.limbo = False # start view change but has NO new view
+
+        self.seqno = Seqno(0) # used when this is primary
+
+        self.last_stable = Seqno(0)
+        self.low_bound = Seqno(0)
+
+        self.last_prepared = Seqno(0)
+        self.last_executed = Seqno(0)
+        self.last_tentative_execute = Seqno(0)
 
         super().__init__(replica_principals = replica_principals,
                          *args, **kwargs)
@@ -52,11 +75,29 @@ class Replica(Node):
         return super().is_valid
 
     @property
-    def has_new_view():
+    def has_new_view(self):
         """this replica has complete new-view
         information for the current view
         """
-        return v == 0 or True # TODO: more conditions
+        return self.view == 0 or True # TODO: more conditions
+
+    def status_handler(self):
+        pass
+
+    def view_change_handler(self):
+        pass
+
+    def recovery_handler(self):
+        pass
+
+    def idle_handler(self):
+        pass
+
+    def start_view_change_timer(self):
+        if (self.view_change_timer
+            and not self.view_change_timer.done()):
+            
+            
 
     def execute_readonly(self, request):
         return True
@@ -105,36 +146,50 @@ class Replica(Node):
         pp = peer_principal
 
         # firstly, verify auth
-        if not self.has_new_view or not request.verify(self, pp):
+        if self.has_new_view:
+            if not request.verify(self, pp):
+                return
+        else:
+            # TODO: it might be my fault?
             return
 
-        if (request.node_type is Node.client_type):
-            if request.readonly:
-                if execute_readonly(request):
-                return
+        request.in_pre_prepare = False # init attribute
 
-                principal = self.client_principals[request.index]
-                self.readonly_request_queue[principal] = request
-                self.readonly_request_queue.move_to_end(principal)
+        if (request.sender_type is Node.client_type):
+            if request.readonly:
+                if not execute_readonly(request):
+                    # if failed, then push to the queue
+                    # will try to execute it later
+                    principal = self.client_principals[request.index]
+                    self.ro_requests[principal] = request
+                    self.ro_requests.move_to_end(principal)
+
+                # return regardless of the result
                 return
 
             # this is a read-write request from client
             last_reqid = (self.replies[pp].reqid if
-                      pp in self.replies else -1)
+                          pp in self.replies else -1)
             if last_reqid < request.reqid:
-                old_request = self.request_queue.get(pp)
-                if (old_request:
-                    and request.reqid <= old_request.reqid
-                    and self.view <= old_request.view):
-                    # there is no need to continue
-                    return
+                old_request = self.rw_requests.get(pp)
+                if old_request:
+                    if (request.reqid <= old_request.reqid
+                        and self.view <= old_request.view):
+                        # there is no need to continue
+                        return
+
+                    if not old_request.in_pre_prepare:
+                        # skip this request, client send more
+                        # requests before the old one's reply
+                        del self.requests[old_request.contents_digest]
 
                 request.view = self.view
-                self.request_queue[pp] = request
-                self.request_queue.move_to_end(pp)
+                self.requests[pp] = request
+                self.requests.move_to_end(pp)
+                self.requests[request.contents_digest] = request
 
                 if self.principal is self.primary:
-                    self.send_pre_prepare() # TODO
+                    self.send_pre_prepare()
                 else if not self.limbo:
                     send(request, self.primary)
                     # TODO: view change timer
@@ -142,7 +197,7 @@ class Replica(Node):
             elif last_reqid == request.reqid:
                 reply = self.replies[pp]
                 reply.view = self.view
-                reply.node_index = self.index
+                reply.sender = self.index
 
                 # TODO: send reply
 
@@ -151,7 +206,23 @@ class Replica(Node):
         # TODO: replica request
 
     def send_pre_prepare(self):
-        pass
+        assert self.principal is self.primary
+
+        if not len(self.requests) or not self.has_new_view:
+            # 1. requests queue should NOT empty
+            # 2. has new view
+            return
+
+        next_seqno = self.seqno + 1
+        if not (next_seqno <= self.last_executed + self.congestion_window
+                and next_seqno <= self.last_stable + checkpoint_max_out):
+            return # window is too narrow
+
+        self.seqno = next_seqno # increase sequence number
+
+        pre_prepare = PrePrepare.from_node(self)
+
+        
 
     def recv_pre_prepare(self, pre_prepare):
         pass
