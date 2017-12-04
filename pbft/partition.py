@@ -7,7 +7,7 @@ class Partition():
     """Page size"""
     block_size = 4096
 
-    """Default block contents"""
+    """Default block content"""
     zero_block = bytes(block_size)
 
     """Default number of children for partitions"""

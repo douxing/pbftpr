@@ -39,7 +39,3 @@ MessageTag.snake_names  = {
 MessageTag.const_names = {
     t: camel_to_snake(t.name).upper() for t in MessageTag
 }
-
-
-big_request_thresh = 80
-pre_prepare_contents_thresh = 8196

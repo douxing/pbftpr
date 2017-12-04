@@ -3,7 +3,7 @@ import re
 
 from rlp.sedes import CountableList, raw
 
-from .types import MessageTag
+from .message_tag import MessageTag
 
 class BaseMessage():
 
@@ -33,9 +33,9 @@ class BaseMessage():
     @property
     def sender_type:
         if hasattr(self, 'extra'):
-            return NodeType((self.extra >> 4) & 1)
+            return 'Replica' if (self.extra >> 4) & 1) else 'Client'
         else:
-            return NodeType.Replica
+            return 'Replica'
 
     @property
     def frame_head(self):
@@ -44,19 +44,19 @@ class BaseMessage():
 
     @property
     def frame(self):
-        """Generate frame from tag and payloads
+        """Generate frame from tag and payload
 
         this method should ONLY be called with complete message,
-        which has both tag and payloads attributes
+        which has both tag and payload attributes
         """
-        return self.frame_head + self.payloads
+        return self.frame_head + self.payload
 
     def __len__(self):
         """Total length of this frame
         """
         # dx: I think this is more efficient than:
         # return len(self.frame)
-        return len(self.frame_head) + len(self.payloads)
+        return len(self.frame_head) + len(self.payload)
 
     @classmethod
     def parse_frame(cls, frame:bytes):
@@ -71,11 +71,11 @@ class BaseMessage():
             raise ValueError('illegal frame head')
         
         tag = MessageTag(frame[2])
-        payloads = frame[3:]
+        payload = frame[3:]
 
         if not min(MessageTag) < tag <= max(MessageTag):
             raise ValueError('illegal frame tag')
-        elif not payloads:
-            raise ValueError('illegal frame payloads')
+        elif not payload:
+            raise ValueError('illegal frame payload')
 
-        return tag, payloads
+        return tag, payload

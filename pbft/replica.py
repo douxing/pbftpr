@@ -6,15 +6,15 @@ import traceback
 from .principal import Principal
 from .node import Node
 
-from .types import Reqid, Seqno, View, NodeType, TaskType, Task,
-from .types import checkpoint_interval, checkpoint_max_out
+import .types
+from .types import Reqid, Seqno, View, TaskType, Task,
 from .timer import Timer
+from .log   import Log
 from .utils import print_new_key, print_task
 
-class Replica(Node):
-    type = NodeType.Replica
 
-    congestion_window = 1
+class Replica(Node):
+    type = 'Replica'
 
     def __init__(self,
                  private_key, public_key,
@@ -47,7 +47,9 @@ class Replica(Node):
         self.rw_requests = collections.OrderedDict()
         self.ro_requests = collections.OrderedDict()
 
-        
+        self.plog = Log(
+            
+        ) # Seqno -> PreparedCertificate
 
         self.replies = dict() # principal -> reply
 
@@ -153,7 +155,9 @@ class Replica(Node):
             # TODO: it might be my fault?
             return
 
-        request.in_pre_prepare = False # init attribute
+        # init attributes
+        request.in_pre_prepare = False
+        request.view = self.view
 
         if (request.sender_type is Node.client_type):
             if request.readonly:
@@ -173,20 +177,21 @@ class Replica(Node):
             if last_reqid < request.reqid:
                 old_request = self.rw_requests.get(pp)
                 if old_request:
-                    if (request.reqid <= old_request.reqid
-                        and self.view <= old_request.view):
-                        # there is no need to continue
+                    if request.reqid <= old_request.reqid:
+                        # or request.view <= old_request.view?
+                        # end the process w/o reply
                         return
 
                     if not old_request.in_pre_prepare:
-                        # skip this request, client send more
-                        # requests before the old one's reply
-                        del self.requests[old_request.contents_digest]
+                        # remove old_request, client send more
+                        # requests than replicas can handle
+                        del self.requests[old_request.content_digest]
+                        # needless 'cause will be replaced by new request
+                        # del self.rw_request[old_request.content_digest]
 
-                request.view = self.view
-                self.requests[pp] = request
-                self.requests.move_to_end(pp)
-                self.requests[request.contents_digest] = request
+                self.rw_requests[pp] = request
+                self.rw_requests.move_to_end(pp)
+                self.requests[request.content_digest] = request
 
                 if self.principal is self.primary:
                     self.send_pre_prepare()
@@ -214,14 +219,13 @@ class Replica(Node):
             return
 
         next_seqno = self.seqno + 1
-        if not (next_seqno <= self.last_executed + self.congestion_window
+        if not (next_seqno <= self.last_executed + consts.congestion_window
                 and next_seqno <= self.last_stable + checkpoint_max_out):
             return # window is too narrow
 
-        self.seqno = next_seqno # increase sequence number
-
+        self.seqno = next_seqno # use new sequence number
         pre_prepare = PrePrepare.from_node(self)
-
+        send(pre_prepare, 'ALL_REPLICAS')
         
 
     def recv_pre_prepare(self, pre_prepare):

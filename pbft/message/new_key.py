@@ -4,20 +4,20 @@ import secrets
 import rlp
 from rlp.sedes import List, CountableList, big_endian_int, raw
 
-from ..types import Reqid, NodeType
+from ..basic import Reqid
 from .base_message import BaseMessage
 
 class NewKey(BaseMessage):
 
-    contents_sedes = List([
+    content_sedes = List([
         big_endian_int, # sender index
         big_endian_int, # timestamp
         big_endian_int, # extra with sender type
         CountableList(raw), # [k(j, i)]
     ])
 
-    payloads_sedes = List([
-        raw, # contents
+    payload_sedes = List([
+        raw, # content
         raw, # auth(signature)
     ])
 
@@ -31,16 +31,16 @@ class NewKey(BaseMessage):
         self.extra = extra
         self.hmac_keys = hmac_keys
 
-        self.contents = None
+        self.content = None
         self.auth = None
-        self.payloads = None
+        self.payload = None
 
         self.from_addr = None
 
         super().__init__()
 
     def verify(self, peer_principal):
-        return peer_principal.verify(self.contents_digest, self.auth)
+        return peer_principal.verify(self.content_digest, self.auth)
 
     def __str__(self):
         return '{}:{}\n{}\n{}\n{}'.format(self.sender, self.reqid,
@@ -48,7 +48,7 @@ class NewKey(BaseMessage):
                                           self.auth)
 
     @property
-    def contents_digest(self):
+    def content_digest(self):
         d = hashlib.sha256()
         d.update('{}'.format(self.sender).encode())
         d.update('{}'.format(self.reqid).encode())
@@ -70,31 +70,31 @@ class NewKey(BaseMessage):
             hmac_keys.append(p.encrypt(nonce))
 
         extra = 0
-        if node.type is NodeType.Client:
+        if node.type is 'Client':
             extra |= 1 << 4
 
         message = cls(node.sender, node.next_reqid(), extra, hmac_keys)
-        message.contents = rlp.encode([message.sender, message.reqid,
+        message.content = rlp.encode([message.sender, message.reqid,
                                        message.extra, message.hmac_keys],
-                                      cls.contents_sedes)
+                                      cls.content_sedes)
 
-        message.auth = node.principal.sign(message.contents_digest)
-        message.payloads = rlp.encode([message.contents, message.auth],
-                                      cls.payloads_sedes)
+        message.auth = node.principal.sign(message.content_digest)
+        message.payload = rlp.encode([message.content, message.auth],
+                                      cls.payload_sedes)
         return message
 
     @classmethod
-    def from_payloads(cls, payloads, addr):
+    def from_payload(cls, payload, addr):
         try:
-            [contents, auth] = rlp.decode(payloads, cls.payloads_sedes)
+            [content, auth] = rlp.decode(payload, cls.payload_sedes)
 
             [sender, reqid, extra, hmac_keys] = (
-                rlp.decode(contents, cls.contents_sedes))
+                rlp.decode(content, cls.content_sedes))
 
             message = cls(sender, reqid, extra, hmac_keys)
-            message.contents = contents
+            message.content = content
             message.auth = auth
-            message.payloads = payloads
+            message.payload = payload
             message.from_addr = addr
 
             return message

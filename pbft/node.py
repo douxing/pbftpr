@@ -110,9 +110,9 @@ class Node():
 
     def parse_frame(self, data, addr):
         try:
-            tag, payloads = BaseMessage.parse_frame(data)
+            tag, payload = BaseMessage.parse_frame(data)
             cls = getattr(sys.modules[__name__], tag.name)
-            message = cls.from_payloads(payloads, addr)
+            message = cls.from_payload(payload, addr)
             return message
         except:
             traceback.print_exc() # TODO: log

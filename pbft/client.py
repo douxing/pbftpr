@@ -1,13 +1,13 @@
 import traceback
 
-from .types import Reqid, Seqno, View, NodeType, TaskType, Task
+from .types import Reqid, Seqno, View, TaskType, Task
 from .message import Request, Reply
 from .utils import print_task
 from .principal import Principal
 from .node import Node
 
 class Client(Node):
-    type = NodeType.Client
+    type = 'Client'
 
     def __init__(self,
                  private_key:str, public_key:str,

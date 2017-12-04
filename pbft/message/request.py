@@ -3,13 +3,13 @@ import hashlib
 import rlp
 from rlp.sedes import List, CountableList, big_endian_int, raw
 
-from ..types import Reqid, NodeType
-from .types import MessageTag
+from ..basic import Reqid
+from .message_tag import MessageTag
 from .base_message import BaseMessage
 
 class Request(BaseMessage):
 
-    contents_sedes = List([
+    content_sedes = List([
         big_endian_int, # sender index
         big_endian_int, # timestamp(reqid)
         big_endian_int, # extra bitmap
@@ -17,8 +17,8 @@ class Request(BaseMessage):
         raw, # command
     ])
 
-    payloads_sedes = List([
-        raw, # contents
+    payload_sedes = List([
+        raw, # content
         raw, # auth(authenticators or signature)
     ])
 
@@ -42,9 +42,9 @@ class Request(BaseMessage):
 
         self.command = command
 
-        self.contents = None
+        self.content = None
         self.auth = None
-        self.payloads = None
+        self.payload = None
 
         self.from_addr = None
 
@@ -95,7 +95,7 @@ class Request(BaseMessage):
         return d.digest()
 
     @property
-    def contents_digest(self):
+    def content_digest(self):
         d = hashlib.sha256()
         d.update('{}'.format(self.sender).encode())
         d.update('{}'.format(self.reqid).encode())
@@ -106,29 +106,29 @@ class Request(BaseMessage):
 
     def authenticate(self, node):
         if self.use_signature:
-            self.auth = node.principal.sign(self.contents_digest)
+            self.auth = node.principal.sign(self.content_digest)
         else:
-            self.auth = node.gen_authenticators(self.contents_digest)
+            self.auth = node.gen_authenticators(self.content_digest)
 
-        self.contents = rlp.encode([
+        self.content = rlp.encode([
             self.sender, self.reqid, self.extra,
             self.full_replier, self.command,
-        ], self.contents_sedes)
+        ], self.content_sedes)
 
-        self.payloads = rlp.encode([
-            self.contents, self.auth
-        ], self.payloads_sedes)
+        self.payload = rlp.encode([
+            self.content, self.auth
+        ], self.payload_sedes)
 
     def verify(self, node, peer_principal):
         pp = peer_principal
 
         if self.use_signature:
-            return pp.verify(self.contents_digest, self.signature)
+            return pp.verify(self.content_digest, self.signature)
 
         if len(node.replica_principals) != len(self.auth):
             return False
 
-        return node.principal.verify(self.contents_digest,
+        return node.principal.verify(self.content_digest,
                                      self.auth[node.sender])
 
     @classmethod
@@ -141,7 +141,7 @@ class Request(BaseMessage):
             extra |= 1
         if use_signature:
             extra |= 2
-        if node.type is NodeType.Client:
+        if node.type is 'Client':
             extra |= 1 << 4
         if reply_from_all:
             extra |= 1 << 5
@@ -152,15 +152,15 @@ class Request(BaseMessage):
         return message
 
     @classmethod
-    def from_payloads(cls, payloads, addr):
+    def from_payload(cls, payload, addr):
         try:
-            [contents, auth] = rlp.decode(payloads, cls.payloads_sedes)
+            [content, auth] = rlp.decode(payload, cls.payload_sedes)
             [sender, reqid, extra, full_replier, extra, command] = (
-                rlp.decode(contents, cls.contents_sedes))
+                rlp.decode(content, cls.content_sedes))
 
             message = cls(sender, reqid, extra, full_replier, command)
 
-            message.contents, message.payloads = contents, payloads
+            message.content, message.payload = content, payload
             message.from_addr = addr
             return message
         except rlp.DecodingError as exc:

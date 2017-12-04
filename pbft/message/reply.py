@@ -6,10 +6,10 @@ from rlp.sedes import List, CountableList, big_endian_int, raw
 
 from . import BaseMessage
 
-from ..types import View, Reqid, NodeType
+from ..basic import View, Reqid
 
 class Reply(BaseMessage):
-    contents_sedes = List([
+    content_sedes = List([
         big_endian_int, # replier index
         big_endian_int, # timestamp(reqid)
         big_endian_int, # extra
@@ -18,8 +18,8 @@ class Reply(BaseMessage):
         raw, # reply
     ])
 
-    payloads_sedes = List([
-        raw, # contents
+    payload_sedes = List([
+        raw, # content
         raw, # auth(hmac)
     ])
 
@@ -45,7 +45,7 @@ class Reply(BaseMessage):
         return d.digest()
 
     @property
-    def contents_digest(self):
+    def content_digest(self):
         d = hashlib.sha256()
         d.update('{}'.format(self.sender).encode())
         d.update('{}'.format(self.reqid).encode())
@@ -58,7 +58,7 @@ class Reply(BaseMessage):
     def from_node(cls, node, request, reply):
 
         extra = 0
-        if node.type is NodeType.Client:
+        if node.type is 'Client':
             extra |= 1 << 4
         
         Message = cls(node.index, request.reqid, extra, node.view, reply)
@@ -66,12 +66,12 @@ class Reply(BaseMessage):
         return message
 
     @classmethod
-    def from_payloads(cls, payloads, addr):
+    def from_payload(cls, payload, addr):
         try:
-            [contents, auth] = rlp.decode(payloads, cls.payloads_sedes)
+            [content, auth] = rlp.decode(payload, cls.payload_sedes)
 
             [sender, reqid, extra, view, reply_digest, reply] = (
-                rlp.decode(contents, cls.contents_sedes))
+                rlp.decode(content, cls.content_sedes))
 
             message = cls(sender, reqid, extra, view, reply)
             if message.reply_digest != reply_digest:
