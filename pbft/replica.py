@@ -47,7 +47,7 @@ class Replica(Node):
         self.rw_requests = collections.OrderedDict()
         self.ro_requests = collections.OrderedDict()
 
-        self.plog = Log(
+        self.plog = 
             
         ) # Seqno -> PreparedCertificate
 
@@ -156,8 +156,7 @@ class Replica(Node):
             return
 
         # init attributes
-        request.in_pre_prepare = False
-        request.view = self.view
+        request.pre_prepare = None # pre_prepare it belong
 
         if (request.sender_type is Node.client_type):
             if request.readonly:
@@ -172,9 +171,9 @@ class Replica(Node):
                 return
 
             # this is a read-write request from client
-            last_reqid = (self.replies[pp].reqid if
-                          pp in self.replies else -1)
-            if last_reqid < request.reqid:
+            last_reply_reqid = (self.replies[pp].reqid if
+                                pp in self.replies else -1)
+            if last_reply_reqid < request.reqid:
                 old_request = self.rw_requests.get(pp)
                 if old_request:
                     if request.reqid <= old_request.reqid:
@@ -182,7 +181,7 @@ class Replica(Node):
                         # end the process w/o reply
                         return
 
-                    if not old_request.in_pre_prepare:
+                    if not old_request.pre_prepare:
                         # remove old_request, client send more
                         # requests than replicas can handle
                         del self.requests[old_request.content_digest]
@@ -226,7 +225,7 @@ class Replica(Node):
         self.seqno = next_seqno # use new sequence number
         pre_prepare = PrePrepare.from_node(self)
         send(pre_prepare, 'ALL_REPLICAS')
-        
+
 
     def recv_pre_prepare(self, pre_prepare):
         pass

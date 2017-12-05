@@ -34,12 +34,34 @@ class BaseLog():
         return self._capacity
 
 class PrepareCertificate():
-    def __init__(self):
+    def __init__(self, log):
+        self.log = log
+        self.prepares = dict()
+        self.commits = dict()
         self.clear()
 
     def clear(self):
+        self.my_pre_prepare = None
         self.pre_prepare = None
-        self.prepares = dict() # digest -> Prepare
+        self.my_prepare = None
+        self.prepares.clear() # digest -> Prepare
+        self.my_commit = None
+        self.commits.clear() # digest -> Commit
+
+    def is_pre_prepared(self):
+        if (self.my_pre_prepare
+            or (self.pre_prepare and self.my_prepare)):
+            return True
+
+        return False
+
+    def is_prepared(self):
+        if self.my_pre_prepare:
+            return len(self.prepares) >= 2 * self.log.f
+        elif self.pre_prepare and self.my_prepare:
+            return len(self.prepares) >= 2 * self.log.f - 1
+
+        return False
 
 class PrepareCertificateLog(BaseLog):
     def __init__(self, f, capacity, head):
@@ -47,5 +69,5 @@ class PrepareCertificateLog(BaseLog):
         super(self, PrepareCertificateLog).__init__(self, capacity,  head)
 
         for _ in range(self.capacity):
-            self.logs.append(PrepareInfo())
-            
+            self.logs.append(PrepareCertificate(self))
+

@@ -110,26 +110,24 @@ class Request(BaseMessage):
         else:
             self.auth = node.gen_authenticators(self.content_digest)
 
-        self.content = rlp.encode([
-            self.sender, self.reqid, self.extra,
-            self.full_replier, self.command,
-        ], self.content_sedes)
-
-        self.payload = rlp.encode([
-            self.content, self.auth
-        ], self.payload_sedes)
+        return self.auth
 
     def verify(self, node, peer_principal):
         pp = peer_principal
 
         if self.use_signature:
-            return pp.verify(self.content_digest, self.signature)
+            return pp.verify(self.content_digest, self.auth)
 
         if len(node.replica_principals) != len(self.auth):
             return False
 
-        return node.principal.verify(self.content_digest,
-                                     self.auth[node.sender])
+        # for request, we use 'out' key for the authentication
+        return (pp.gen_hmac('out', self.content_digest)
+                == self.auth[node.sender])
+
+    @classmethod
+    def from_none(cls):
+        return cls(None, None, None, None, None)
 
     @classmethod
     def from_node(cls, node, readonly:bool,
@@ -148,7 +146,23 @@ class Request(BaseMessage):
 
         message = cls(node.sender, node.next_reqid(), extra,
                       full_replier, command)
+
+
+        message.content = rlp.encode([
+            message.sender, message.reqid, message.extra,
+            message.full_replier, message.command,
+        ], message.content_sedes)
+
         message.authenticate(node)
+
+        if message.use_signature:
+            auth = message.auth
+        else:
+            auth = rlp.encode(message.auth,
+                              cls.authenticators_sedes)
+
+        message.payload = rlp.encode([message.content, auth],
+                                     message.payload_sedes)
         return message
 
     @classmethod
@@ -160,8 +174,14 @@ class Request(BaseMessage):
 
             message = cls(sender, reqid, extra, full_replier, command)
 
-            message.content, message.payload = content, payload
+            message.content = content
+            if message.use_signature:
+                message.auth = auth
+            else:
+                message.auth = rlp.decode(auth, cls.authenticators_sedes)
+            message.payload = payload
             message.from_addr = addr
+
             return message
         except rlp.DecodingError as exc:
             raise ValueError('decoding error: {}'.format(exc))

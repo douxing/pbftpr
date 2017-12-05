@@ -72,7 +72,7 @@ class Principal():
         return self.inkey
 
     def gen_hmac(self, inout, source):
-        """Generate hmac for the input
+        """Generate hmac for the source
 
         nonce is NOT used, I believe that hmac-sha256 is secure enough
         """
@@ -80,8 +80,8 @@ class Principal():
 
         if inout == 'in':
             key = self.inkey
-        elif inout == 'out':
+        else:
+            # inout == 'out'
             key = self.outkey
 
         return hmac.new(key, source, digestmod='SHA256').digest()
-        
