@@ -3,7 +3,7 @@ import hashlib
 import rlp
 from rlp.sedes import List, CountableList, big_endian_int, raw
 
-from ..basic import Reqid
+from ..basic import Reqid, Configuration as conf
 from .message_tag import MessageTag
 from .base_message import BaseMessage
 
@@ -14,12 +14,13 @@ class Request(BaseMessage):
         big_endian_int, # timestamp(reqid)
         big_endian_int, # extra bitmap
         big_endian_int, # full replier
-        raw, # command
+        raw, # command or command_digest
     ])
 
     payload_sedes = List([
         raw, # content
         raw, # auth(authenticators or signature)
+             # maybe empty(b'') if content contains command_digest
     ])
 
     def __init__(self, sender:int, reqid:Reqid, extra:int,
@@ -41,6 +42,7 @@ class Request(BaseMessage):
         self.full_replier = full_replier
 
         self.command = command
+        self._command_digest = None
 
         self.content = None
         self.auth = None
@@ -83,15 +85,34 @@ class Request(BaseMessage):
 
     @property
     def command_digest(self):
-        """compute digest for command
-        """
+        """compute digest for command"""
+        if self.command:
+            d = hashlib.sha256()
+            # dx: i am going to use the data instead of hahs
+            # so I am commenting them out.
+            # d.update('{}'.format(self.sender).encode())    # useless
+            # d.update('{}'.format(self.reqid).encode())     # useless
+            d.update(self.command)                           # useful
+            return d.digest()
+
+        return self._command_digest
+
+    @property.setter
+    def command_digest(self, new_command_digest):
+        assert not self.command
+
+        self._command_digest = new_command_digest
+
+    @property
+    def consensus_digest(self):
         d = hashlib.sha256()
-        # dx: i don't think, node_id, reqid is useful?
-        # so I am commenting them out...
-        # d.update('{}'.format(self.sender).encode())     # useless
-        # d.update('{}'.format(self.reqid).encode())     # useless
-        # dx: command only is just enough
-        d.update(self.command)                           # useful
+        if self.sender_type is 'Client':
+            d.update('{}'.format(1).encode())
+        else:
+            d.update('{}'.format(0).encode())
+        d.update('{}'.format(self.sender).encode())
+        d.update('{}'.format(self.reqid).encode())
+        d.update(self.command_digest)
         return d.digest()
 
     @property
@@ -125,13 +146,24 @@ class Request(BaseMessage):
         return (pp.gen_hmac('out', self.content_digest)
                 == self.auth[node.sender])
 
-    @classmethod
-    def from_none(cls):
-        return cls(None, None, None, None, None)
+    @property
+    def payload_in_pre_prepare(self):
+        if len(self.command) <= conf.pre_prepare_big_request_thresh:
+            return self.payload
+
+        content = rlp.encode([
+            self.sender, self.reqid, self.extra,
+            self.full_replier, self.command_digest
+        ], message.content_sedes)
+
+        payload = rlp.encode([content, b''], message.payload_sedes)
+
+        return payload
+
 
     @classmethod
-    def from_node(cls, node, readonly:bool,
-                  use_signature:bool, reply_from_all:bool,
+    def from_node(cls, node,
+                  readonly:bool, use_signature:bool, reply_from_all:bool,
                   full_replier:int, command:bytes):
 
         extra = 0
@@ -146,7 +178,6 @@ class Request(BaseMessage):
 
         message = cls(node.sender, node.next_reqid(), extra,
                       full_replier, command)
-
 
         message.content = rlp.encode([
             message.sender, message.reqid, message.extra,
@@ -172,13 +203,20 @@ class Request(BaseMessage):
             [sender, reqid, extra, full_replier, extra, command] = (
                 rlp.decode(content, cls.content_sedes))
 
-            message = cls(sender, reqid, extra, full_replier, command)
+            if not auth:
+                # this should be a request inside of a pre_prepare
+                # it has no auth attached, get the full request form client
+                message = cls(sender, reqid, extra, full_replier, None)
+                message.command_digest = command
+            else:
+                # full request
+                message = cls(sender, reqid, extra, full_replier, command)
+                if message.use_signature:
+                    message.auth = auth
+                else:
+                    message.auth = rlp.decode(auth, cls.authenticators_sedes)
 
             message.content = content
-            if message.use_signature:
-                message.auth = auth
-            else:
-                message.auth = rlp.decode(auth, cls.authenticators_sedes)
             message.payload = payload
             message.from_addr = addr
 

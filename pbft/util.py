@@ -3,7 +3,6 @@ import math
 
 from .types import Reqid, TaskType, Task
 
-
 def utcnow_ts():
     return datetime.utcnow().timestamp()
 

@@ -36,6 +36,18 @@ class PrePrepare(BaseMessage):
         self.payload = None
 
     @property
+    def consensus_digest(self):
+        """Used to make sure that primary did NOT tamper the requests
+        including all request.consensus_digest and non_det_choices
+        """
+        d = hashlib.sha256()
+        for r in self.requests:
+            d.update(r.consensus_digest)
+        d.update(self.non_det_choices)
+
+        return d.digest()
+
+    @property
     def content_digest(self):
         d = hashlib.sha256()
         d.update('{}'.format(self.view).encode())

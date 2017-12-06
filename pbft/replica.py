@@ -6,12 +6,10 @@ import traceback
 from .principal import Principal
 from .node import Node
 
-import .types
-from .types import Reqid, Seqno, View, TaskType, Task,
+from .basic import Reqid, Seqno, View, TaskType, Task, Configuration as conf
 from .timer import Timer
 from .log   import Log
 from .utils import print_new_key, print_task
-
 
 class Replica(Node):
     type = 'Replica'
@@ -24,6 +22,9 @@ class Replica(Node):
                  idle_interval:int,
                  replica_principals = [],
                  *args, **kwargs):
+
+        super().__init__(replica_principals = replica_principals,
+                         *args, **kwargs)
 
         self.index = None # this is not a consensus replia
         for index, p in enumerate(replica_principals):
@@ -41,15 +42,19 @@ class Replica(Node):
                                 self.idle_handler)
 
         # request digests -> requests
-        self.requests = dict()
+        # self.requests = dict()
 
-        # principal -> request
+        # pending requests, all are full requests
+        # principal -> [request]
         self.rw_requests = collections.OrderedDict()
         self.ro_requests = collections.OrderedDict()
-
-        self.plog = 
-            
-        ) # Seqno -> PreparedCertificate
+        
+        self.plog = PrepareCertificateLog(self.f,
+                                          conf.checkpoint_max_out,
+                                          1)
+        
+        # (sender_type, sender_index, reqid, commmand_digest) => request
+        # self.inplog_requests = dict()
 
         self.replies = dict() # principal -> reply
 
@@ -58,14 +63,11 @@ class Replica(Node):
         self.seqno = Seqno(0) # used when this is primary
 
         self.last_stable = Seqno(0)
-        self.low_bound = Seqno(0)
+        self.low_bound = Seqno(0) # used for what?
 
         self.last_prepared = Seqno(0)
         self.last_executed = Seqno(0)
         self.last_tentative_execute = Seqno(0)
-
-        super().__init__(replica_principals = replica_principals,
-                         *args, **kwargs)
 
     @property
     def principal(self) -> Principal:
@@ -98,8 +100,6 @@ class Replica(Node):
     def start_view_change_timer(self):
         if (self.view_change_timer
             and not self.view_change_timer.done()):
-            
-            
 
     def execute_readonly(self, request):
         return True
@@ -174,27 +174,32 @@ class Replica(Node):
             last_reply_reqid = (self.replies[pp].reqid if
                                 pp in self.replies else -1)
             if last_reply_reqid < request.reqid:
-                old_request = self.rw_requests.get(pp)
-                if old_request:
-                    if request.reqid <= old_request.reqid:
-                        # or request.view <= old_request.view?
-                        # end the process w/o reply
+                # firstly, check whether this request is in pre_prepare
+                
+
+                requests = self.rw_requests.get(pp, [])
+                # TODO: use bisect?
+                insert_index = len(requests)
+                for i, r in enumerate(requests):
+                    if r.reqid < request.reqid:
+                        continue
+                    elif r.reqid == request.reqid:
+                        # duplicate, ignore this one
+                        # TOOD: warning log if not the same
                         return
+                    else:
+                        # r.reqid > request.reqid
+                        insert_index = i
+                        break
 
-                    if not old_request.pre_prepare:
-                        # remove old_request, client send more
-                        # requests than replicas can handle
-                        del self.requests[old_request.content_digest]
-                        # needless 'cause will be replaced by new request
-                        # del self.rw_request[old_request.content_digest]
-
-                self.rw_requests[pp] = request
+                requests.insert(insert_index, request)
+                self.rw_requests[pp] = requests
                 self.rw_requests.move_to_end(pp)
-                self.requests[request.content_digest] = request
 
                 if self.principal is self.primary:
                     self.send_pre_prepare()
                 else if not self.limbo:
+                    
                     send(request, self.primary)
                     # TODO: view change timer
 
@@ -212,7 +217,7 @@ class Replica(Node):
     def send_pre_prepare(self):
         assert self.principal is self.primary
 
-        if not len(self.requests) or not self.has_new_view:
+        if not len(self.rw_requests) or not self.has_new_view:
             # 1. requests queue should NOT empty
             # 2. has new view
             return
