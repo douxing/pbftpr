@@ -41,17 +41,14 @@ class Replica(Node):
         self.idle_timer = Timer(recovery_interval / 1000.0,
                                 self.idle_handler)
 
-        # request digests -> requests
-        # self.requests = dict()
+        # self.pending_requests = dict()
 
-        # pending requests, all are full requests
+        # stale requests, all are full requests
         # principal -> [request]
         self.rw_requests = collections.OrderedDict()
         self.ro_requests = collections.OrderedDict()
         
-        self.plog = PrepareCertificateLog(self.f,
-                                          conf.checkpoint_max_out,
-                                          1)
+        self.plog = PrepareCertificateLog(self, conf.checkpoint_max_out, 1)
         
         # (sender_type, sender_index, reqid, commmand_digest) => request
         # self.inplog_requests = dict()
@@ -63,7 +60,7 @@ class Replica(Node):
         self.seqno = Seqno(0) # used when this is primary
 
         self.last_stable = Seqno(0)
-        self.low_bound = Seqno(0) # used for what?
+        # self.low_bound = Seqno(0) # used for what?
 
         self.last_prepared = Seqno(0)
         self.last_executed = Seqno(0)
@@ -132,9 +129,7 @@ class Replica(Node):
 
         # thirdly, check timestamp(reqid)
         if new_key.reqid <= pp.outkey_reqid:
-            print('new_key timestamp failure: {}'.format(
-                pp.index
-            ))
+            print('new_key timestamp failure: {}'.format(pp.index))
             return
 
         # finally, update peer_principal
@@ -147,18 +142,18 @@ class Replica(Node):
         assert request.index == peer_principal.index
         pp = peer_principal
 
-        # firstly, verify auth
-        if self.has_new_view:
-            if not request.verify(self, pp):
-                return
-        else:
-            # TODO: it might be my fault?
+        # verify auth
+        if not request.verify(self, pp):
+            return
+
+        if not self.has_new_view:
+            # TODO: save for next view?
             return
 
         # init attributes
         request.pre_prepare = None # pre_prepare it belong
 
-        if (request.sender_type is Node.client_type):
+        if (request.sender_type is 'Client'):
             if request.readonly:
                 if not execute_readonly(request):
                     # if failed, then push to the queue
@@ -175,8 +170,49 @@ class Replica(Node):
                                 pp in self.replies else -1)
             if last_reply_reqid < request.reqid:
                 # firstly, check whether this request is in pre_prepare
-                
+                req = self.plog.get_request(request)
+                if req:
+                    # found request in pre_prepare
+                    # let's update insignificant informations
+                    if (req.consensus_digest != request.consensus_digest
+                        or not req.command):
+                        return # bad request TODO: log
 
+                    if (self.principal is self.primary
+                        and req.change_in_primary(request, self)):
+                        pass # TODO: find no prepare and resend prepare
+                    else:
+                        if 
+                            
+
+                    if request.consensus_digest != req.consensus_digest:
+                        return # old one dominates
+
+                    pcert = self.plog[req.seqno]
+                    if pre_prepare.update_request(request):
+                        pass
+
+                    req.command = request.command
+                    
+
+                    if not req.verified:
+                        assert request.verified
+                        req.verified = True
+
+                    if request.reply_from_all:
+                        req.reply_from_all = True
+
+                    if request.full_replier == self.index:
+                        req.full_replier = self.index
+
+
+                    if (pre_prepare.verified_requests_count(self)
+                        == len(pre_prepare.requests)):
+                        if 
+                        
+                    return
+
+                
                 requests = self.rw_requests.get(pp, [])
                 # TODO: use bisect?
                 insert_index = len(requests)
@@ -192,12 +228,20 @@ class Replica(Node):
                         insert_index = i
                         break
 
+                if insert_index == len(requests):
+                    request.pre_prepare_candidate = True
+                    if requests:
+                        requests[-1].pre_prepare_candidate = False
+                else:
+                     request.pre_prepare_candidate = False
+
+
                 requests.insert(insert_index, request)
                 self.rw_requests[pp] = requests
                 self.rw_requests.move_to_end(pp)
 
                 if self.principal is self.primary:
-                    self.send_pre_prepare()
+                    self.new_and_send_pre_prepare()
                 else if not self.limbo:
                     
                     send(request, self.primary)
@@ -214,7 +258,7 @@ class Replica(Node):
 
         # TODO: replica request
 
-    def send_pre_prepare(self):
+    def new_and_send_pre_prepare(self):
         assert self.principal is self.primary
 
         if not len(self.rw_requests) or not self.has_new_view:
@@ -222,18 +266,97 @@ class Replica(Node):
             # 2. has new view
             return
 
-        next_seqno = self.seqno + 1
-        if not (next_seqno <= self.last_executed + consts.congestion_window
-                and next_seqno <= self.last_stable + checkpoint_max_out):
+        new_seqno = self.seqno + 1
+        if not (new_seqno <= self.last_executed + consts.congestion_window
+                and new_seqno <= self.last_stable + checkpoint_max_out):
             return # window is too narrow
 
-        self.seqno = next_seqno # use new sequence number
-        pre_prepare = PrePrepare.from_node(self)
+        self.seqno = new_seqno # use new sequence number
+
+        pre_prepare = PrePrepare.from_primary(self, False)
+
+        # add pre_prepare into plog
+        pcert = self.plog[new_seqno]
+        assert not pcert.is_pre_prepared() # right?
+        pcert.add_pre_prepare(pre_prepare, True)
+        
         send(pre_prepare, 'ALL_REPLICAS')
 
+    def in_proper_view(self, message):
+        """
+        :message: of type PrePrepare, Prepare, Commit
+        """
+        offset = message.seqno - self.last_stable
+        if (offset > 0
+            and offset <= conf.checkpoint_max_out
+            and message.view == self.view):
+            return True
+        
+        # TODO: send_status as negative ack
 
-    def recv_pre_prepare(self, pre_prepare):
+        return False
+
+    def recv_pre_prepare(self, pre_prepare, peer_principal):
+        if not pre_prepare.verify(self, peer_principal):
+            # TODO: log
+            return
+
+        if (self.principal == self.primary # i am the boss!
+            or not self.in_proper_view(pre_prepare)):
+            # TODO: log
+            return
+
+        if not self.has_new_view:
+            # TODO: add missing?
+            return
+
+        pcert = self.plog[pre_prepare.seqno]
+        if pcert.pre_prepare:
+            # update pcert.pre_prepare if possible
+            if (pcert.pre_prepare.view != pre_prepare.view
+                or pcert.pre_prepare.seqno != pre_prepare.seqno
+                or (pcert.pre_prepare.consensus_digest
+                    != pre_prepare.consensus_digest)):
+                return # old one dominates
+
+            for i, r in enumerate(pre_prepare.requests):
+                req = pcert.pre_prepare.requests[i] # old request
+                req.change_in_backup(r, self)
+        else:
+            # new verified per_prepare
+            # handle big requests
+            pcert.add_pre_prepare(pre_prepare)
+            for r in pre_prepare.requests:
+                if r.auth:
+                    # only interested in big requests
+                    # which are sent directly from clients
+                    continue
+
+                for req in node.rw_requests:
+                    if req.
+
+                
+            
+        
+
+    def send_prepare(self):
         pass
+
+    def recv_prepare(self, prepare, peer_principal):
+        pass
+
+    def send_commit(self):
+        pass
+
+    def recv_commit(self. commit, peer_principal):
+        pass
+        
+        
+
+
+    
+
+        
 
 
 

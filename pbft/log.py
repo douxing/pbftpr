@@ -32,8 +32,8 @@ class BaseLog():
 class PrepareCertificate():
     def __init__(self, plog):
         self.plog = plog
-        self.prepares = dict() # digest -> Prepare
-        self.commits = dict() # digest -> Commit
+        self.digest_to_prepares = dict() # digest -> set(Prepare)
+        self.digest_to_commits = dict() # digest -> set(Commit)
 
     def init(self, seqno:Seqno):
         self.seqno = seqno
@@ -45,16 +45,21 @@ class PrepareCertificate():
                                        request.reqid)]
 
         self.pre_prepare = None
-        self.my_prepare = None
-        self.prepares.clear()
-        self.my_commit = None
-        self.commits.clear()
+        self.prepares = [None] * self.replica.n # replica index -> prepares
+        self.digest_to_prepares.clear()
+        self.commits = [None] * self.replica.n # replica index -> commits
+        self.digest_to_commits.clear()
+
+    @property
+    def my_prepare(self):
+        return self.prepares[self.plog.replica.index]
 
     def add_pre_prepare(self, pre_prepare, mine:bool=False):
         pre_prepare.mine = mine
         for i, r in enumerate(pre_prepare.requests):
             r.seqno = self.seqno
-            r.inpp_index = i
+            r.in_pre_prepare_index = i
+            assert not self.plog.requests[(r.sender_type, r.sender, r.reqid)]
             self.plog.requests[(r.sender_type, r.sender, r.reqid)] = r
 
         self.pre_prepare = pre_prepare
@@ -67,12 +72,15 @@ class PrepareCertificate():
 
         return False
 
+    def add_prepare(self, prepare):
+        pass
+
     def is_prepared(self):
         if self.pre_prepare:
             if self.pre_prepare.mine:
-                return len(self.prepares) >= 2 * self.plog.f
+                return len(self.prepares) >= 2 * self.plog.replica.f
             elif self.my_prepare:
-                return len(self.prepares) >= 2 * self.plog.f - 1
+                return len(self.prepares) >= 2 * self.plog.replica.f - 1
 
         return False
 
@@ -84,10 +92,10 @@ class PrepareCertificate():
     
 
 class PrepareCertificateLog(BaseLog):
-    def __init__(self, f, capacity, head):
+    def __init__(self, replica, capacity, head):
         super().__init__(self, capacity,  head)
 
-        self.f = f
+        self.replica = replica
 
         # this is the index of requests in all pre_prepares
         # (sender_type, sender_index, reqid) => request
@@ -105,7 +113,7 @@ class PrepareCertificateLog(BaseLog):
             pcert.init(head + i)
             self.items.append(pcert)
 
-    def find_request(self, request):
+    def get_request(self, request):
         return self.requests.get((request.sender_type,
                                   request.sender,
                                   request.reqid))

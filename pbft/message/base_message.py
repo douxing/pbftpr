@@ -21,7 +21,7 @@ class BaseMessage():
 
         should ONLY be called directly when parsing a frame
         """
-        pass
+        self.verified = False
 
     def verify(self):
         raise NotImplementedError

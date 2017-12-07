@@ -67,10 +67,10 @@ class Node():
 
     def find_sender(self, message):
         try:
-            if message.node_type == self.replica_type:
-                principal = self.replica_principals[message.index]
-            elif message.node_type == self.client_type:
-                principal = self.client_principals[message.index]
+            if message.sender_type == 'Replica':
+                principal = self.replica_principals[message.sender]
+            elif message.sender_type == 'Client':
+                principal = self.client_principals[message.sender]
 
             assert principal.index == message.index
 
@@ -82,8 +82,6 @@ class Node():
             traceback.print_exc()
         except:
             traceback.print_exc()
-
-        return None
 
     def gen_authenticators(self, hash_bytes):
         authenticators = []
@@ -112,7 +110,7 @@ class Node():
         try:
             tag, payload = BaseMessage.parse_frame(data)
             cls = getattr(sys.modules[__name__], tag.name)
-            message = cls.from_payload(payload, addr)
+            message = cls.from_payload(payload, addr, self)
             return message
         except:
             traceback.print_exc() # TODO: log

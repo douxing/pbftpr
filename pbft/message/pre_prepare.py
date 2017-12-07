@@ -25,6 +25,8 @@ class PrePrepare(BaseMessage):
 
     def __init__(self, view, seqno, extra,
                  requests, non_det_choices):
+        super().__init__()
+        
         self.view = view
         self.seqno = seqno
         self.extra = extra
@@ -34,6 +36,17 @@ class PrePrepare(BaseMessage):
         self.content = None
         self.auth = None
         self.payload = None
+
+    @property
+    def use_signature(self):
+        return True if self.extra & 2 else False
+
+    @use_signature.setter
+    def use_signature(self, val):
+        if val:
+            self.extra |= 2
+        else:
+            self.extra &= ~2
 
     @property
     def consensus_digest(self):
@@ -74,47 +87,57 @@ class PrePrepare(BaseMessage):
     def verify(self, node, peer_principal):
         pp = peer_principal
 
-        if self.use_signature:
-            return pp.verify(self.content_digest, self.auth)
+        if self.verified:
+            pass
+        elif self.use_signature:
+            self.verified = pp.verify(self.content_digest, self.auth)
+        else:
+            if len(node.replica_principals) != len(self.auth):
+                self.verified = False
+            else:
+                assert pp.index == self.sender
+                self.verified = (pp.gen_hmac('in', self.content_digest)
+                        == self.auth[node.sender]))
+        
+        return self.verified
 
-        if len(node.replica_principals) != len(self.auth):
-            return False
-
-        return (pp.gen_hmac('in', self.content_digest)
-                == self.auth[node.sender])
+    def verified_requests_count(self, node):
+        count = 0
+        for r in self.requests:
+            if r.verified:
+                count += 1
+        return count
 
     @classmethod
-    def from_node(cls, node, use_signature:bool):
+    def from_primary(cls, primary, use_signature:bool):
         extra = 0
         if use_signature:
             extra |= 2
 
-        requests = [] # request payload or sha256
-        for r in node.requests:
-            if r.pre_prepare:
-                continue
+        non_det_choices = b'' # TODO: non deterministic choices
+        message = cls(primary.view, primary.seqno, extra,
+                      None, non_det_choices)
 
-            requests.append(r)
-            r.in_pre_prepare = True
+        requests = [] # request payload
+        for rs in primary.rw_requests:
+            if rs and rs[-1].pre_prepare_candidate:
+                r = rs.pop(-1)
+                requests.append(r)
 
             if len(requests) >= conf.request_in_pre_prepare:
                 break
 
-        non_det_choices = b'' # TODO: non deterministic choices
-
-        message = cls(node.view, node.seqno, extra,
-                      requests, non_det_choices)
-
+        message.requests = requests
         message.content = rlp.encode([message.view, message.seqno,
                                       message.extra, message.requests,
                                       message.non_det_choices],
                                      cls.content_sedes)
 
         if message.use_signature:
-            message.auth = node.principal.sign(message.content_digest)
+            message.auth = primary.principal.sign(message.content_digest)
             auth = message.auth
         else:
-            message.auth = node.gen_authenticators(message.content_digest)
+            message.auth = primary.gen_authenticators(message.content_digest)
             auth = rlp.encode(message.auth, cls.authenticators_sedes)
 
         message.payload = rlp.encode([message,content, auth],
@@ -123,19 +146,14 @@ class PrePrepare(BaseMessage):
         return message
 
     @classmethod
-    def from_payload(cls, payload, addr):
+    def from_payload(cls, payload, addr, _node):
         try:
             [content, auth] = rlp.decode(payload, cls.payload_sedes)
             [view, seqno, extra, requests, non_det_choices] = rlp.decode(
                 content, cls.content_sedes)
 
             for i, r in enumerate(requests):
-                if r[0] == 0x60:
-                    requests[i] = Request.from_payload(r[1:], addr)
-                elif r[0] == 0x12:
-                    requests[i] = r[1:]
-                else:
-                    raise ValueError('wrong flag in requests')
+                requests[i] = Request.from_payload(r, addr)
             
             message = cls(view, seqno, extra, requests, non_det_choices)
 

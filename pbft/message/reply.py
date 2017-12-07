@@ -30,6 +30,8 @@ class Reply(BaseMessage):
         :reqid reqid from the sender
         :node_type  always be replica
         """
+        super().__init__()
+
         self.sender = sender
         self.reqid = reqid
         self.extra = extra
@@ -66,7 +68,7 @@ class Reply(BaseMessage):
         return message
 
     @classmethod
-    def from_payload(cls, payload, addr):
+    def from_payload(cls, payload, addr, _node):
         try:
             [content, auth] = rlp.decode(payload, cls.payload_sedes)
 

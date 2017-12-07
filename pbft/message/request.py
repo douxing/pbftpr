@@ -35,11 +35,13 @@ class Request(BaseMessage):
         :auth bytes(signature) or [hmac_sha256...](authenticators)
         :full_replier ignored if extra & 1 << 5 is set (reply from all)
         """
+        super().__init__();
 
         self.sender = sender
         self.reqid = reqid
         self.extra = extra
         self.full_replier = full_replier
+        self.reply_will_full = False
 
         self.command = command
         self._command_digest = None
@@ -118,12 +120,59 @@ class Request(BaseMessage):
     @property
     def content_digest(self):
         d = hashlib.sha256()
+        if self.sender_type is 'Client':
+            d.update('{}'.format(1).encode())
+        else:
+            d.update('{}'.format(0).encode())
         d.update('{}'.format(self.sender).encode())
         d.update('{}'.format(self.reqid).encode())
         d.update('{}'.format(self.extra).encode())
         d.update('{}'.format(self.full_replier).encode())
         d.update(self.command_digest) # includes command and len(command)
         return d.digest()
+
+    def change_in_primary(self, request, primary):
+
+        changed = False
+        if self.extra != request.extra:
+            self.extra = request.extra
+            changed = True
+        if self.full_replier != request.full_replier:
+            self.full_replier = request.full_replier
+            changed = True
+
+        self.reply_with_full = (self.reply_with_full
+                                or self.reply_from_all
+                                or self.full_replier == primary.index)
+
+        return changed
+
+    def change_in_backup(self, request, backup):
+        # consensus data are not editable
+        assert self.consensus_digest == request.consensus_digest
+
+        if 
+
+        changed = False
+        if self.extra != request.extra:
+            self.extra = request.extra
+            changed = True
+        if self.full_replier != request.full_replier:
+            self.full_replier = request.full_replier
+            changed = True
+        if not self.command and request.command:
+            self.command = request.command
+            changed = True
+        elif self.command and not request.command:
+            changed = True
+        if not self.verified and request.verified:
+            self.verified = True
+            changed = True
+        
+        
+
+        if changed:
+            
 
     def authenticate(self, node):
         if self.use_signature:
@@ -136,15 +185,20 @@ class Request(BaseMessage):
     def verify(self, node, peer_principal):
         pp = peer_principal
 
-        if self.use_signature:
-            return pp.verify(self.content_digest, self.auth)
+        if self.verified or not self.auth:
+            pass # already verified or no auth to verify
+        elif self.use_signature:
+            self.verified = pp.verify(self.content_digest, self.auth)
+        else:
+            if len(node.replica_principals) != len(self.auth):
+                self.verifed = False
+            else:
+                # for request, we use 'out' key for the authentication
+                assert pp.index == self.sender
+                self.verified = (pp.gen_hmac('out', self.content_digest)
+                                 == self.auth[self.sender])
 
-        if len(node.replica_principals) != len(self.auth):
-            return False
-
-        # for request, we use 'out' key for the authentication
-        return (pp.gen_hmac('out', self.content_digest)
-                == self.auth[node.sender])
+        return self.verified
 
     @property
     def payload_in_pre_prepare(self):
@@ -162,7 +216,7 @@ class Request(BaseMessage):
 
 
     @classmethod
-    def from_node(cls, node,
+    def from_client(cls, node,
                   readonly:bool, use_signature:bool, reply_from_all:bool,
                   full_replier:int, command:bytes):
 
@@ -197,7 +251,7 @@ class Request(BaseMessage):
         return message
 
     @classmethod
-    def from_payload(cls, payload, addr):
+    def from_payload(cls, payload, addr, node):
         try:
             [content, auth] = rlp.decode(payload, cls.payload_sedes)
             [sender, reqid, extra, full_replier, extra, command] = (
@@ -218,6 +272,11 @@ class Request(BaseMessage):
 
             message.content = content
             message.payload = payload
+            
+            if (message.reply_from_all
+                or message.sender == node.index):
+                message.reply_with_full = True
+
             message.from_addr = addr
 
             return message

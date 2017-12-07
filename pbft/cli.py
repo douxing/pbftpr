@@ -176,9 +176,9 @@ def client(**kwargs):
         client_config = { k: node_config[k] for k in client_keys }
         client = Client(**client_config)
 
-        reqs = [Request.from_node(client, False, False,
+        reqs = [Request.from_client(client, False, False,
                                   False, 0, b'Hello, world!'),
-                Request.from_node(client, False, False,
+                Request.from_client(client, False, False,
                                   False, 0, b'Hello, world again!')]
 
         client.process_requests(reqs)

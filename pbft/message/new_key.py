@@ -26,6 +26,8 @@ class NewKey(BaseMessage):
                  extra, hmac_keys):
         """Session key
         """
+        super().__init__()
+
         self.sender = sender
         self.reqid = reqid
         self.extra = extra
@@ -36,8 +38,6 @@ class NewKey(BaseMessage):
         self.payload = None
 
         self.from_addr = None
-
-        super().__init__()
 
     def verify(self, peer_principal):
         return peer_principal.verify(self.content_digest, self.auth)
@@ -84,7 +84,7 @@ class NewKey(BaseMessage):
         return message
 
     @classmethod
-    def from_payload(cls, payload, addr):
+    def from_payload(cls, payload, addr, _node):
         try:
             [content, auth] = rlp.decode(payload, cls.payload_sedes)
 
