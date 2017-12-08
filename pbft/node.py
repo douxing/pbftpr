@@ -118,22 +118,22 @@ class Node():
     def notify(self, task:Task):
         self.loop.create_task(self.task_queue.put(task))
 
-    def sendto(self, data:bytes, dest):
+    def sendto(self, data:bytes, dest, include_self=False):
         if isinstance(data, BaseMessage):
             data = data.frame
 
-        if dest == 'ALL_REPLICAS':
-            for p in self.replica_principals:
-                self.sendto(data, p)
-        elif dest == 'ALL_CLIENTS':
-            for p in self.client_principals:
-                self.sendto(data, p)
+        if dest is 'ALL_REPLICAS':
+            self.sendto(data, self.replica_principals, include_self)
+        elif dest is 'ALL_CLIENTS':
+            self.sendto(data, self.client_principals, include_self)
+        elif type(dest) is tuple or type(dest) is list:
+            for d in dest:
+                self.sendto(data, d, include_self)
         else:
+            assert type(dest) is Principal:
             # unicast to addr
-            if type(dest) is Principal:
-                if dest is self.principal:
-                    return # don't send to myself
+            if dest is self.principal and not include_self:
+                return # don't send to myself
 
-                dest = dest.addr
-
+            dest = dest.addr
             self.transport.sendto(data, dest)

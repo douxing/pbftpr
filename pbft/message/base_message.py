@@ -23,8 +23,43 @@ class BaseMessage():
         """
         self.verified = False
 
-    def verify(self):
-        raise NotImplementedError
+    def authenticate(self, node):
+        if self.use_signature:
+            self.auth = node.principal.sign(self.content_digest)
+        else:
+            self.auth = node.gen_authenticators(self.content_digest)
+
+        return self.auth
+
+    @property:
+    def raw_auth(self):
+        if not self.auth:
+            auth = b''
+        elif self.use_signature:
+            auth = self.auth
+        else:
+            assert type(message.auth) is list
+            auth = rlp.encode(message.auth,
+                              cls.authenticators_sedes)
+
+        return auth
+
+    def verify(self, node, peer_principal):
+        pp = peer_principal
+
+        if self.verified:
+            pass
+        elif self.use_signature:
+            self.verified = pp.verify(self.content_digest, self.auth)
+        else:
+            if len(node.replica_principals) != len(self.auth):
+                self.verified = False
+            else:
+                assert pp.index == self.sender
+                self.verified = (pp.gen_hmac('in', self.content_digest)
+                        == self.auth[node.sender]))
+        
+        return self.verified
 
     @property
     def tag(self):

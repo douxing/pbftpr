@@ -101,9 +101,8 @@ class Request(BaseMessage):
 
     @property.setter
     def command_digest(self, new_command_digest):
-        assert not self.command
-
-        self._command_digest = new_command_digest
+        if not self.command:
+            self._command_digest = new_command_digest
 
     @property
     def consensus_digest(self):
@@ -131,7 +130,18 @@ class Request(BaseMessage):
         d.update(self.command_digest) # includes command and len(command)
         return d.digest()
 
-    def change_in_primary(self, request, primary):
+    def gen_payload(self, node):
+        self.content = rlp.encode([
+            self.sender, self.reqid, self.extra,
+            self.full_replier, self.command,
+        ], self.content_sedes)
+
+        self.authenticate(node)
+        self.payload = rlp.encode([self.content, self.raw_auth],
+                                  self.payload_sedes)
+
+    def change_by_primary(self, request, primary):
+        assert self.verified
 
         changed = False
         if self.extra != request.extra:
@@ -140,18 +150,25 @@ class Request(BaseMessage):
         if self.full_replier != request.full_replier:
             self.full_replier = request.full_replier
             changed = True
+        if self.auth != request.auth:
+            self.auth = request.auth
+            changed = True # re-authenticated
 
         self.reply_with_full = (self.reply_with_full
                                 or self.reply_from_all
                                 or self.full_replier == primary.index)
 
-        return changed
+        if changed:
+            self.gen_payload()
 
-    def change_in_backup(self, request, backup):
-        # consensus data are not editable
-        assert self.consensus_digest == request.consensus_digest
+       return changed
 
-        if 
+    def change_by_backup(self, request, backup):
+        assert request.verified # only allow verified request
+
+        if not self.command:
+            self.command = request.command
+        assert self.command == request.command
 
         changed = False
         if self.extra != request.extra:
@@ -160,19 +177,20 @@ class Request(BaseMessage):
         if self.full_replier != request.full_replier:
             self.full_replier = request.full_replier
             changed = True
-        if not self.command and request.command:
-            self.command = request.command
-            changed = True
-        elif self.command and not request.command:
-            changed = True
-        if not self.verified and request.verified:
-            self.verified = True
-            changed = True
-        
-        
+        if self.auth != request.auth:
+            self.auth = request.auth
+            changed = True # re-authenticated
+
+        self.reply_with_full = (self.reply_with_full
+                                or self.reply_from_all
+                                or self.full_replier == backup.index)
+
+        self.verified = True # if was False, updated by verified reuqest
 
         if changed:
-            
+            self.gen_payload()
+
+        return changed
 
     def authenticate(self, node):
         if self.use_signature:
@@ -232,22 +250,8 @@ class Request(BaseMessage):
 
         message = cls(node.sender, node.next_reqid(), extra,
                       full_replier, command)
+        message.gen_payload()
 
-        message.content = rlp.encode([
-            message.sender, message.reqid, message.extra,
-            message.full_replier, message.command,
-        ], message.content_sedes)
-
-        message.authenticate(node)
-
-        if message.use_signature:
-            auth = message.auth
-        else:
-            auth = rlp.encode(message.auth,
-                              cls.authenticators_sedes)
-
-        message.payload = rlp.encode([message.content, auth],
-                                     message.payload_sedes)
         return message
 
     @classmethod
@@ -274,7 +278,7 @@ class Request(BaseMessage):
             message.payload = payload
             
             if (message.reply_from_all
-                or message.sender == node.index):
+                or message.full_replier == node.index):
                 message.reply_with_full = True
 
             message.from_addr = addr

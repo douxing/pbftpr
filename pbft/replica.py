@@ -47,9 +47,9 @@ class Replica(Node):
         # principal -> [request]
         self.rw_requests = collections.OrderedDict()
         self.ro_requests = collections.OrderedDict()
-        
+
         self.plog = PrepareCertificateLog(self, conf.checkpoint_max_out, 1)
-        
+
         # (sender_type, sender_index, reqid, commmand_digest) => request
         # self.inplog_requests = dict()
 
@@ -143,7 +143,7 @@ class Replica(Node):
         pp = peer_principal
 
         # verify auth
-        if not request.verify(self, pp):
+        if not request.command or not request.verify(self, pp):
             return
 
         if not self.has_new_view:
@@ -174,45 +174,42 @@ class Replica(Node):
                 if req:
                     # found request in pre_prepare
                     # let's update insignificant informations
-                    if (req.consensus_digest != request.consensus_digest
-                        or not req.command):
+                    if req.consensus_digest != request.consensus_digest:
                         return # bad request TODO: log
 
-                    if (self.principal is self.primary
-                        and req.change_in_primary(request, self)):
-                        pass # TODO: find no prepare and resend prepare
-                    else:
-                        if 
-                            
-
-                    if request.consensus_digest != req.consensus_digest:
-                        return # old one dominates
-
                     pcert = self.plog[req.seqno]
-                    if pre_prepare.update_request(request):
-                        pass
+                    # when pcert.add_pre_prepare
+                    # pcert has updated plog.requests
+                    assert pcert.pre_prepare
 
-                    req.command = request.command
-                    
-
-                    if not req.verified:
-                        assert request.verified
-                        req.verified = True
-
-                    if request.reply_from_all:
-                        req.reply_from_all = True
-
-                    if request.full_replier == self.index:
-                        req.full_replier = self.index
-
-
-                    if (pre_prepare.verified_requests_count(self)
-                        == len(pre_prepare.requests)):
-                        if 
+                    if self.principal is self.primary:
+                        if req.change_by_primary(request, self):
+                            # pre_prepare.requests has been updated
+                            # find no responsers and resend pre_prepare
+                            # if prepared, last_reply_reqid >= request.reqid
+                            assert not pcert.is_prepared
+                            pcert.pre_prepare.gen_payload(self) # re-auth
+                            dest = []
+                            for p in self.replica_principals:
+                                if (p is not self.principal
+                                    and p.index not in pcert.prepares):
+                                    dest.append(p)
+                            self.sendto(pcert.pre_prepare, dest)
+                        # else:
+                        #   TODO: if waited for too long, resend pre_prepare
+                    else:
+                        # this is a backup
+                        if req.change_by_backup(request.self):
+                            if (not pcert.is_pre_prepared
+                                and (pcert.pre_prepare.verified_requests_count
+                                     == len(pcert.pre_prepare.requests))):
+                                self.new_and_send_prepare(pcert.pre_prepare)
                         
                     return
 
-                
+                # if not in pre_prepare, insert into pending queue
+                # and will be moved to the end of the queue
+
                 requests = self.rw_requests.get(pp, [])
                 # TODO: use bisect?
                 insert_index = len(requests)
@@ -220,8 +217,8 @@ class Replica(Node):
                     if r.reqid < request.reqid:
                         continue
                     elif r.reqid == request.reqid:
-                        # duplicate, ignore this one
-                        # TOOD: warning log if not the same
+                        if r.consensus_digest == request.consensus_digest:
+                            r.change_by_primary(request, self)
                         return
                     else:
                         # r.reqid > request.reqid
@@ -243,17 +240,17 @@ class Replica(Node):
                 if self.principal is self.primary:
                     self.new_and_send_pre_prepare()
                 else if not self.limbo:
-                    
                     send(request, self.primary)
                     # TODO: view change timer
 
             elif last_reqid == request.reqid:
-                reply = self.replies[pp]
+                assert pp in self.replies
+                reply = self.replies.get(pp)
                 reply.view = self.view
-                reply.sender = self.index
+                p = self.find_sender(reply)
+                self.sendto(reply, p)
 
                 # TODO: send reply
-
                 # TODO: start view change timer if ...
 
         # TODO: replica request
@@ -278,9 +275,10 @@ class Replica(Node):
         # add pre_prepare into plog
         pcert = self.plog[new_seqno]
         assert not pcert.is_pre_prepared() # right?
-        pcert.add_pre_prepare(pre_prepare, True)
-        
+
         send(pre_prepare, 'ALL_REPLICAS')
+        pre_prepare.mine = True
+        pcert.add_pre_prepare(pre_prepare)
 
     def in_proper_view(self, message):
         """
@@ -291,28 +289,26 @@ class Replica(Node):
             and offset <= conf.checkpoint_max_out
             and message.view == self.view):
             return True
-        
+
         # TODO: send_status as negative ack
 
         return False
 
     def recv_pre_prepare(self, pre_prepare, peer_principal):
         if not pre_prepare.verify(self, peer_principal):
-            # TODO: log
-            return
+            return # TODO: log
 
         if (self.principal == self.primary # i am the boss!
             or not self.in_proper_view(pre_prepare)):
-            # TODO: log
-            return
+            return # TODO: log
 
         if not self.has_new_view:
-            # TODO: add missing?
-            return
+            return # TODO: add missing?
 
         pcert = self.plog[pre_prepare.seqno]
+        changed = False
         if pcert.pre_prepare:
-            # update pcert.pre_prepare if possible
+            # update pcert.pre_prepare.requests if possible
             if (pcert.pre_prepare.view != pre_prepare.view
                 or pcert.pre_prepare.seqno != pre_prepare.seqno
                 or (pcert.pre_prepare.consensus_digest
@@ -320,27 +316,53 @@ class Replica(Node):
                 return # old one dominates
 
             for i, r in enumerate(pre_prepare.requests):
-                req = pcert.pre_prepare.requests[i] # old request
-                req.change_in_backup(r, self)
+                # (pcert.pre_prepare.consensus_digest
+                # == pre_prepare.consensus_digest) implies:
+                # r.consensus_digest == req.consensus_digest
+                if r.verify():
+                    req = pcert.pre_prepare.requests[i] # old request
+                    if req.change_by_backup(r, self):
+                        changed = True
+                # else:
+                #   no need to update, wait for client's request
+
         else:
             # new verified per_prepare
             # handle big requests
-            pcert.add_pre_prepare(pre_prepare)
             for r in pre_prepare.requests:
-                if r.auth:
-                    # only interested in big requests
-                    # which are sent directly from clients
-                    continue
+                r.verify()
+                p = self.find_sender(r)
+                if not p:
+                    continue # TODO: error?
+                rs = node.rw_requests.get(p, [])
+                for i, req in enumerate(rs):
+                    if req.reqid == r.reqid:
+                        r.change_by_backup(req, self)
+                        rs.pop(i)
+                        break
 
-                for req in node.rw_requests:
-                    if req.
+            pcert.add_pre_prepare(pre_prepare)
+            changed = True
 
-                
-            
-        
 
-    def send_prepare(self):
-        pass
+        if pcert.is_pre_prepared:
+            # resend my prepare
+            self.sendto(pcert.my_prepare, self.primary)                
+        elif (changed
+              and (pcert.pre_prepare.verified_requests_count
+                   == len(pcert.pre_prepare.requests))):
+            self.new_and_send_prepare(pcert.pre_prepare)
+
+    def new_and_send_prepare(self, pre_prepare):
+        pcert = self.plog(pre_prepare.seqno)
+        assert not pcert.my_prepare
+
+        prepare = Prepare.from_backup(self, pre_prepare,
+                                      pre_prepare.view, pre_prepare.seqno,
+                                      False, pre_prepare.consensus_digest)
+
+        self.sendto(prepare, 'ALL_REPLICAS')
+        pcert.add_prepare(prepare)
 
     def recv_prepare(self, prepare, peer_principal):
         pass
@@ -350,13 +372,13 @@ class Replica(Node):
 
     def recv_commit(self. commit, peer_principal):
         pass
-        
-        
 
 
-    
 
-        
+
+
+
+
 
 
 

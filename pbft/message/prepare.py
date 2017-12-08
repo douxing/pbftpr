@@ -45,12 +45,6 @@ class Prepare():
         else:
             self.extra &= ~2
 
-    def authenticate(self):
-        pass
-
-    def verify(self):
-        pass
-
     @classmethod
     def from_backup(cls, backup, view, seqno,
                     use_signature:bool, consensus_digest):

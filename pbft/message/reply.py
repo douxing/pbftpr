@@ -10,12 +10,12 @@ from ..basic import View, Reqid
 
 class Reply(BaseMessage):
     content_sedes = List([
-        big_endian_int, # replier index
+        big_endian_int, # view
         big_endian_int, # timestamp(reqid)
         big_endian_int, # extra
-        big_endian_int, # view
-        raw, # reply digest
-        raw, # reply
+        big_endian_int, # requestor index
+        big_endian_int, # replier index
+        raw, # result or digest
     ])
 
     payload_sedes = List([
@@ -23,8 +23,8 @@ class Reply(BaseMessage):
         raw, # auth(hmac)
     ])
 
-    def __init__(self, sender, reqid, extra,
-                 view, reply:bytes):
+    def __init__(self, view, reqid,  extra,
+                 sender, replier, result:bytes):
         """
         :sender index id of replica sending this message
         :reqid reqid from the sender
@@ -32,13 +32,18 @@ class Reply(BaseMessage):
         """
         super().__init__()
 
-        self.sender = sender
+        self.view = view
         self.reqid = reqid
         self.extra = extra
-        self.view = view
-        self.reply = reply
+        self.sender = sender # sender of request
+        self.replier = replier
+        self.result = result
 
+        self.requestor = None # principal
+
+        self.content = None
         self.auth = None
+        self.payload = None
 
     @property
     def reply_digest(self):
@@ -49,10 +54,11 @@ class Reply(BaseMessage):
     @property
     def content_digest(self):
         d = hashlib.sha256()
-        d.update('{}'.format(self.sender).encode())
+        d.update('{}'.format(self.view).encode())
         d.update('{}'.format(self.reqid).encode())
         d.update('{}'.format(self.extra).encode())
-        d.update('{}'.format(self.view).encode())
+        d.update('{}'.format(self.sender).encode())
+        d.update('{}'.format(self.replier).encode())
         d.update('{}'.format(self.reply_digest).encode())
         return d.digest()
 
@@ -62,7 +68,7 @@ class Reply(BaseMessage):
         extra = 0
         if node.type is 'Client':
             extra |= 1 << 4
-        
+
         Message = cls(node.index, request.reqid, extra, node.view, reply)
 
         return message

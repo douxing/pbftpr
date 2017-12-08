@@ -67,39 +67,9 @@ class PrePrepare(BaseMessage):
         d.update('{}'.format(self.seqno).encode())
         d.update('{}'.format(self.extra).encode())
         for r in self.requests:
-            if type(r) is bytes:
-                # r is content_digest of a Request
-                d.update(r)
-            else:
-                # r is an instance of Request
-                d.update(r.content_digest)
+            d.update(r.content_digest)
         d.update(self.non_det_choices)
         return d.digest()
-
-    def authenticate(self, node):
-        if self.use_signature:
-            self.auth = node.principal.sign(self.content_digest)
-        else:
-            self.auth = node.gen_authenticators(self.content_digest)
-
-        return self.auth
-
-    def verify(self, node, peer_principal):
-        pp = peer_principal
-
-        if self.verified:
-            pass
-        elif self.use_signature:
-            self.verified = pp.verify(self.content_digest, self.auth)
-        else:
-            if len(node.replica_principals) != len(self.auth):
-                self.verified = False
-            else:
-                assert pp.index == self.sender
-                self.verified = (pp.gen_hmac('in', self.content_digest)
-                        == self.auth[node.sender]))
-        
-        return self.verified
 
     def verified_requests_count(self, node):
         count = 0
@@ -107,6 +77,17 @@ class PrePrepare(BaseMessage):
             if r.verified:
                 count += 1
         return count
+
+    def gen_payload(self, primary):
+        raw_requests = [r.payload_in_pre_prepare for r in self.requests]
+        self.content = rlp.encode([self.view, self.seqno,
+                                   self.extra, raw_requests,
+                                   self.non_det_choices],
+                                  cls.content_sedes)
+
+        self.authenticate(primary)
+        self.payload = rlp.encode([self,content, self.raw_auth],
+                                  cls.payload_sedes)
 
     @classmethod
     def from_primary(cls, primary, use_signature:bool):
@@ -128,36 +109,23 @@ class PrePrepare(BaseMessage):
                 break
 
         message.requests = requests
-        message.content = rlp.encode([message.view, message.seqno,
-                                      message.extra, message.requests,
-                                      message.non_det_choices],
-                                     cls.content_sedes)
-
-        if message.use_signature:
-            message.auth = primary.principal.sign(message.content_digest)
-            auth = message.auth
-        else:
-            message.auth = primary.gen_authenticators(message.content_digest)
-            auth = rlp.encode(message.auth, cls.authenticators_sedes)
-
-        message.payload = rlp.encode([message,content, auth],
-                                     cls.payload_sedes)
+        message.gen_payload(primary)
 
         return message
 
     @classmethod
-    def from_payload(cls, payload, addr, _node):
+    def from_payload(cls, payload, addr, node):
         try:
             [content, auth] = rlp.decode(payload, cls.payload_sedes)
             [view, seqno, extra, requests, non_det_choices] = rlp.decode(
                 content, cls.content_sedes)
 
             for i, r in enumerate(requests):
-                requests[i] = Request.from_payload(r, addr)
+                requests[i] = Request.from_payload(r, addr, node)
             
             message = cls(view, seqno, extra, requests, non_det_choices)
 
-            message.content= content
+            message.content = content
             if message.use_signature:
                 message.auth = auth
             else:

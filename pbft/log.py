@@ -1,3 +1,5 @@
+import collections
+
 from .types import Seqno
 
 class BaseLog():
@@ -32,8 +34,9 @@ class BaseLog():
 class PrepareCertificate():
     def __init__(self, plog):
         self.plog = plog
-        self.digest_to_prepares = dict() # digest -> set(Prepare)
-        self.digest_to_commits = dict() # digest -> set(Commit)
+        self.prepares = collections.OrderedDict() # replica index -> prepare
+        self.prepare_count = dict() # pre_prepare digest -> count of prepare
+        self.commits = collections.OrderedDict()  # replica index -> commit
 
     def init(self, seqno:Seqno):
         self.seqno = seqno
@@ -45,17 +48,19 @@ class PrepareCertificate():
                                        request.reqid)]
 
         self.pre_prepare = None
-        self.prepares = [None] * self.replica.n # replica index -> prepares
-        self.digest_to_prepares.clear()
-        self.commits = [None] * self.replica.n # replica index -> commits
-        self.digest_to_commits.clear()
-
+        self.prepares.clear()
+        self.prepare_count.clear()
+        self.commits.clear()
+        
     @property
     def my_prepare(self):
         return self.prepares[self.plog.replica.index]
 
-    def add_pre_prepare(self, pre_prepare, mine:bool=False):
-        pre_prepare.mine = mine
+    @property
+    def my_commit(self):
+        return self.commits[self.plog.replica.index]
+
+    def add_pre_prepare(self, pre_prepare):
         for i, r in enumerate(pre_prepare.requests):
             r.seqno = self.seqno
             r.in_pre_prepare_index = i
@@ -64,6 +69,7 @@ class PrepareCertificate():
 
         self.pre_prepare = pre_prepare
 
+    @property
     def is_pre_prepared(self):
         if (self.pre_prepare
             and (self.pre_prepare.mine
@@ -73,24 +79,27 @@ class PrepareCertificate():
         return False
 
     def add_prepare(self, prepare):
-        pass
+        if not self.prepares.get(prepare.sender):
+            self.prepares[prepeare.sender] = prepare
+            count = self.prepare_count.get(prepare.consensus_digest, 0)
+            self.prepare_count[prepare.consensus_digest] = count + 1
 
+    @property
     def is_prepared(self):
-        if self.pre_prepare:
-            if self.pre_prepare.mine:
-                return len(self.prepares) >= 2 * self.plog.replica.f
-            elif self.my_prepare:
-                return len(self.prepares) >= 2 * self.plog.replica.f - 1
+        if self.is_pre_prepared:
+            c = self.prepare_count.get(pre_prepare.consensus_digest, 0)
+            return c >= 2 * self.plog.replica.f
 
         return False
 
-    def add_prepare(self, prepare, mine:bool=False):
-        if mine:
-            self.my_prepare = prepare
-        else:
-            self.prepares
-    
+    @property
+    def is_committed(self):
+        if self.is_prepared:
+            # include mine
+            return len(self.commits) > self.plog.replica.f * 2
 
+        return False
+                
 class PrepareCertificateLog(BaseLog):
     def __init__(self, replica, capacity, head):
         super().__init__(self, capacity,  head)
