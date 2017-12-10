@@ -23,14 +23,6 @@ class BaseMessage():
         """
         self.verified = False
 
-    def authenticate(self, node):
-        if self.use_signature:
-            self.auth = node.principal.sign(self.content_digest)
-        else:
-            self.auth = node.gen_authenticators(self.content_digest)
-
-        return self.auth
-
     @property:
     def raw_auth(self):
         if not self.auth:
@@ -43,6 +35,14 @@ class BaseMessage():
                               cls.authenticators_sedes)
 
         return auth
+
+    def authenticate(self, node):
+        if self.use_signature:
+            self.auth = node.principal.sign(self.content_digest)
+        else:
+            self.auth = node.gen_authenticators(self.content_digest)
+
+        return self.auth
 
     def verify(self, node, peer_principal):
         pp = peer_principal

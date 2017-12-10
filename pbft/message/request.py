@@ -141,7 +141,7 @@ class Request(BaseMessage):
                                   self.payload_sedes)
 
     def change_by_primary(self, request, primary):
-        assert self.verified
+        assert request.verified and self.verified
 
         changed = False
         if self.extra != request.extra:
@@ -168,7 +168,6 @@ class Request(BaseMessage):
 
         if not self.command:
             self.command = request.command
-        assert self.command == request.command
 
         changed = False
         if self.extra != request.extra:
@@ -191,14 +190,6 @@ class Request(BaseMessage):
             self.gen_payload()
 
         return changed
-
-    def authenticate(self, node):
-        if self.use_signature:
-            self.auth = node.principal.sign(self.content_digest)
-        else:
-            self.auth = node.gen_authenticators(self.content_digest)
-
-        return self.auth
 
     def verify(self, node, peer_principal):
         pp = peer_principal

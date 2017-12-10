@@ -181,13 +181,13 @@ class Replica(Node):
                     # when pcert.add_pre_prepare
                     # pcert has updated plog.requests
                     assert pcert.pre_prepare
+                    # if prepared, last_reply_reqid >= request.reqid
+                    assert not pcert.is_prepared
 
                     if self.principal is self.primary:
                         if req.change_by_primary(request, self):
                             # pre_prepare.requests has been updated
                             # find no responsers and resend pre_prepare
-                            # if prepared, last_reply_reqid >= request.reqid
-                            assert not pcert.is_prepared
                             pcert.pre_prepare.gen_payload(self) # re-auth
                             dest = []
                             for p in self.replica_principals:
@@ -197,14 +197,21 @@ class Replica(Node):
                             self.sendto(pcert.pre_prepare, dest)
                         # else:
                         #   TODO: if waited for too long, resend pre_prepare
+                        #         but in fact this should be done by client
                     else:
                         # this is a backup
                         if req.change_by_backup(request.self):
-                            if (not pcert.is_pre_prepared
-                                and (pcert.pre_prepare.verified_requests_count
-                                     == len(pcert.pre_prepare.requests))):
-                                self.new_and_send_prepare(pcert.pre_prepare)
-                        
+                            # if req.command is None, then it will be assigned
+                            # to request.command, if not, commands should also
+                            # be the same, for consensus_digests is the same
+                            assert req.command == request.command
+
+                            if pcert.is_pre_prepared:
+                                assert pcert.my_prepare
+                                self.sendto(pcert.my_prepare, self.primary)
+                            elif pcert.pre_prepare.is_requests_verified:
+                                self.new_and_send_prepare(pcert)
+
                     return
 
                 # if not in pre_prepare, insert into pending queue
@@ -274,7 +281,7 @@ class Replica(Node):
 
         # add pre_prepare into plog
         pcert = self.plog[new_seqno]
-        assert not pcert.is_pre_prepared() # right?
+        assert not pcert.pre_prepare
 
         send(pre_prepare, 'ALL_REPLICAS')
         pre_prepare.mine = True
@@ -300,7 +307,7 @@ class Replica(Node):
 
         if (self.principal == self.primary # i am the boss!
             or not self.in_proper_view(pre_prepare)):
-            return # TODO: log
+            return # TODO: send other messages? like fetch?
 
         if not self.has_new_view:
             return # TODO: add missing?
@@ -316,16 +323,15 @@ class Replica(Node):
                 return # old one dominates
 
             for i, r in enumerate(pre_prepare.requests):
-                # (pcert.pre_prepare.consensus_digest
-                # == pre_prepare.consensus_digest) implies:
-                # r.consensus_digest == req.consensus_digest
                 if r.verify():
                     req = pcert.pre_prepare.requests[i] # old request
+                    # (pcert.pre_prepare.consensus_digest
+                    # == pre_prepare.consensus_digest) implies:
+                    assert r.consensus_digest == req.consensus_digest
                     if req.change_by_backup(r, self):
                         changed = True
                 # else:
-                #   no need to update, wait for client's request
-
+                #   nothing to be done, just wait for client's request
         else:
             # new verified per_prepare
             # handle big requests
@@ -344,22 +350,21 @@ class Replica(Node):
             pcert.add_pre_prepare(pre_prepare)
             changed = True
 
-
         if pcert.is_pre_prepared:
             # resend my prepare
-            self.sendto(pcert.my_prepare, self.primary)                
-        elif (changed
-              and (pcert.pre_prepare.verified_requests_count
-                   == len(pcert.pre_prepare.requests))):
-            self.new_and_send_prepare(pcert.pre_prepare)
+            self.sendto(pcert.my_prepare, self.primary)
+        elif changed and pcert.pre_prepare.is_requests_verified:
+            self.new_and_send_prepare(pcert)
 
-    def new_and_send_prepare(self, pre_prepare):
-        pcert = self.plog(pre_prepare.seqno)
+    def new_and_send_prepare(self, pcert):
+        """
+        """
         assert not pcert.my_prepare
 
         prepare = Prepare.from_backup(self, pre_prepare,
                                       pre_prepare.view, pre_prepare.seqno,
-                                      False, pre_prepare.consensus_digest)
+                                      False,
+                                      pre_prepare.consensus_digest)
 
         self.sendto(prepare, 'ALL_REPLICAS')
         pcert.add_prepare(prepare)

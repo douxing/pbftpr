@@ -71,12 +71,13 @@ class PrePrepare(BaseMessage):
         d.update(self.non_det_choices)
         return d.digest()
 
-    def verified_requests_count(self, node):
+    @property
+    def is_requests_verified(self, node):
         count = 0
         for r in self.requests:
             if r.verified:
                 count += 1
-        return count
+        return count == len(self.requests)
 
     def gen_payload(self, primary):
         raw_requests = [r.payload_in_pre_prepare for r in self.requests]
