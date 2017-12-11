@@ -83,12 +83,22 @@ class PrepareCertificate():
             self.prepares[prepeare.sender] = prepare
             count = self.prepare_count.get(prepare.consensus_digest, 0)
             self.prepare_count[prepare.consensus_digest] = count + 1
+            return True
+
+        return False
 
     @property
     def is_prepared(self):
         if self.is_pre_prepared:
             c = self.prepare_count.get(pre_prepare.consensus_digest, 0)
             return c >= 2 * self.plog.replica.f
+
+        return False
+
+    def add_commit(self, commit):
+        if not self.commits.get(commit.sender):
+            self.commits[commit.sender] = commit
+            return True
 
         return False
 
