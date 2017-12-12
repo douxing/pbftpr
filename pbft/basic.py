@@ -19,6 +19,7 @@ class Task():
 
 class Configuration:
     # replicas can handle this many before next requests
+    # dx: I think there is no necessary to change this
     congestion_window = 1
 
     # max request counts in pre prepare

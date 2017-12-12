@@ -71,6 +71,9 @@ class Replica(Node):
         # or     == self.last_executed + 1
         self.last_tentative_execute = Seqno(0)
 
+        self.user_execution_func = None
+        self.user_non_det_choice_func = None
+
     @property
     def principal(self) -> Principal:
         """Get principal of this node."""
@@ -106,11 +109,29 @@ class Replica(Node):
     def execute_readonly(self, request):
         return True
 
+    def call_user_execution_func(self):
+        pass
+
     def execute_prepared(self):
-        return True
+        pass
 
     def execute_committed(self):
-        return True
+        while True:
+            if (self.last_executed < self.last_stable
+                or (self.last_executed
+                    >= self.last_stable + consts.checkpoint_max_out)):
+                # dx: how doest this happens?
+                return
+
+            pcert = self.plog[self.last_executed + 1]
+            if not pcert.is_committed:
+                break # no more useful pcert
+
+            pre_prepare = pcert.pre_prepare
+            if not pre_prepare or pre_prepare.view != self.view:
+                break # no more useful pcert
+            
+            
 
 
     def recv_new_key(self, new_key, peer_principal):
@@ -410,7 +431,7 @@ class Replica(Node):
             # received a valid vote
             if not prepared and pcert.is_prepared:
                 # this is the key note
-                self.new_and_send_commit(pcert)                    
+                self.new_and_send_commit(pcert)
 
     def new_and_send_commit(self, pcert):
         assert pcert.is_prepared # count of prepare == 2f
@@ -442,7 +463,7 @@ class Replica(Node):
 
         pcert = self.plog[commit.seqno]
         committed = pcert.is_committed
-        if pcert.add_commit(commit): 
+        if pcert.add_commit(commit):
             if not committed and pcert.is_committed:
                 self.execute_committed()
 
