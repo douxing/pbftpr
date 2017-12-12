@@ -63,7 +63,12 @@ class Replica(Node):
         # self.low_bound = Seqno(0) # used for what?
 
         self.last_prepared = Seqno(0)
+
+        # last commited seqno
         self.last_executed = Seqno(0)
+        # last prepared seqno, this number is
+        # either == self.last_executed
+        # or     == self.last_executed + 1
         self.last_tentative_execute = Seqno(0)
 
     @property
@@ -104,7 +109,7 @@ class Replica(Node):
     def execute_prepared(self):
         return True
 
-    def execute_commited(self):
+    def execute_committed(self):
         return True
 
 
@@ -209,7 +214,7 @@ class Replica(Node):
                             if pcert.is_pre_prepared:
                                 assert pcert.my_prepare
                                 self.sendto(pcert.my_prepare, self.primary)
-                            else:
+                            else if pcert.pre_prepare.is_requests_verified:
                                 self.new_and_send_prepare(pcert)
 
                     return
@@ -312,6 +317,7 @@ class Replica(Node):
         elif pre_prepare.verify(self, peer_principal):
             pass
         elif pcert.prepare_count[pre_prepare.consensus_digest] >= self.f:
+            # for liveness
             # plus this pre_prepare, we have f + 1 votes
             pass
         else
@@ -360,19 +366,22 @@ class Replica(Node):
         assert pcert.pre_prepare
 
         if pcert.is_pre_prepared:
-            # resend my prepare
+            # this is not primary, so
             assert pcert.my_prepare
+            # resend my prepare
             self.sendto(pcert.my_prepare, self.primary)
         elif changed:
-            self.new_and_send_prepare(pcert)
+            assert not pcert.my_prepare
+            if pcert.pre_prepare.is_requests_verified:
+                self.new_and_send_prepare(pcert)
 
     def new_and_send_prepare(self, pcert):
         """
         """
-        assert pcert.pre_prepare and not pcert.my_prepare
+        pre_prepare = pcert.pre_prepare
 
-        if not pcert.pre_prepare.is_requests_verified:
-            return
+        assert pre_prepare and pre_prepare.is_requests_verified:
+        assert not pcert.is_pre_prepared # not pcert.my_prepare
 
         prepare = Prepare.from_backup(self, pre_prepare,
                                       pre_prepare.view, pre_prepare.seqno,
@@ -380,52 +389,62 @@ class Replica(Node):
                                       pre_prepare.consensus_digest)
 
         self.sendto(prepare, 'ALL_REPLICAS')
-        changed = pcert.add_prepare(prepare)
-        if changed:
+        changed = pcert.add_prepare(prepare):
+        assert changed
+
+        if pcert.is_prepared:
             self.new_and_send_commit(pcert)
-        else:
-            # changed should always be True
-            assert False
 
     def recv_prepare(self, prepare, peer_principal):
         if (not prepare.verify(self, peer_principal)
             or prepare.sender == self.primary.index):
             return
-        elif not self.in_proper_view(pre_prepare):
+        elif not self.in_proper_view(prepare):
             return # TODO: send other messages? like fetch?
         elif not self.has_new_view:
             return # TODO: add missing?
 
         pcert = self.plog[prepare.seqno]
+        prepared = pcert.is_prepared
         if pcert.add_prepare(preprare):
             # received a valid vote
-            if pcert.pre_prepare and pcert.pre_prepare.is_requests_verified:
-                self.new_and_send_commit(pcert)
+            if not prepared and pcert.is_prepared:
+                # this is the key note
+                self.new_and_send_commit(pcert)                    
 
     def new_and_send_commit(self, pcert):
-        assert pcert.is_pre_prepared
-        pre_prepare = pcert.pre_prepare
-        
-        if (pcert.prepare_count[pre_prepare.consensus_digest]
-            == self.f * 2 and self.index not in pcert.commits):
-                commit = Commit.from_replica(self, pre_prepare.view,
-                                             pre_prepare.seqno)
+        assert pcert.is_prepared # count of prepare == 2f
+        assert self.index not in pcert.commits
 
-                self.sendto(commit, 'ALL_REPLICAS')
-                pcert.add_commit(commit)
+        pre_prepare = pcert.pre_prepare
+        commit = Commit.from_replica(self, pre_prepare.view,
+                                     pre_prepare.seqno)
+
+        self.sendto(commit, 'ALL_REPLICAS')
+        changed = pcert.add_commit(commit)
+        assert changed
+
+        if pcert.is_committed:
+            self.execute_committed()
+        else:
+            self.execute_prepared()
 
     def recv_commit(self. commit, peer_principal):
         if not commit.verify(self, peer_principal):
             return
-        elif not self.in_proper_view(pre_prepare):
+        elif not self.in_proper_view(commit):
             return # TODO: send other messages? like fetch?
         elif not self.has_new_view:
             return # TODO: add missing?
 
+        # what if i am primary and received a commit
+        # for non-existant pre_prepare ?
+
         pcert = self.plog[commit.seqno]
-        if pcert.add_commit(commit):
-            if len(pcert.commits) == self.f * 2 + 1:
-                self.execute_commited()
+        committed = pcert.is_committed
+        if pcert.add_commit(commit): 
+            if not committed and pcert.is_committed:
+                self.execute_committed()
 
     def notify(self, task:Task):
         self.loop.create_task(self.task_queue.put(task))
